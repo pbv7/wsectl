@@ -1,0 +1,62 @@
+wsectl - Unofficial command-line client for Worksection.
+
+This is an unofficial tool and is not affiliated with Worksection.
+
+Start here (for AI agents):
+  wsectl help agent --full
+
+  Use the version-matched guide before guessing flags or parsing human output.
+  Prefer --json or --ndjson, use --out for large results, and inspect
+  meta.truncated plus meta.warnings before trusting completeness.
+  Use --schema --json or api schema before selecting --fields or --jq.
+
+Human quick start:
+  wsectl profiles add default --account-url https://company.worksection.com --auth-type oauth2
+  Set WSECTL_CLIENT_ID and WSECTL_CLIENT_SECRET in your shell.
+  wsectl auth login --client-id "$WSECTL_CLIENT_ID"
+  wsectl doctor --api
+  wsectl projects list --json
+
+Persistent desktop config:
+  profiles add writes non-secret account settings to config.toml.
+  Without --secret-ref, profiles use keyring:wsectl/PROFILE.
+  auth login stores tokens and client credentials in the selected secret store.
+  Use --profile NAME for one command or profiles use NAME to change the default.
+
+Core read commands:
+  wsectl me --json
+  wsectl users list --json
+  wsectl projects list --status active --json
+  wsectl tasks search --query "invoice" --json
+  wsectl tasks all --extra text,files --json --out /tmp/tasks.json
+  wsectl files download FILE_ID --out ./attachment.bin
+
+Machine-readable output:
+  --json       Stable response envelope for scripts and agents
+  --ndjson     One data record per line for large arrays
+  --raw        Exact Worksection response body
+  --fields     Simple field projection
+  --schema     Static response contract without a Worksection request
+  --jq         gojq transform
+  --out FILE   Write large output without filling agent context
+
+Safety and limits:
+  This build is read-only. Known mutation actions are blocked locally.
+  Worksection documents a 1 request/second limit and a 10,000-record cap
+  for some endpoints. Use --fail-on-truncated when completeness is required.
+  Tokens are never printed by normal commands.
+
+Discovery and diagnostics:
+  wsectl commands --json          Machine-readable command catalog
+  wsectl api actions --json       Known API actions and read/write status
+  wsectl api schema ACTION        Parameters and static response contract
+  wsectl api call ACTION ...      Low-level read-only escape hatch
+  wsectl doctor [--json] [--api]  Diagnose configuration and credentials
+
+Shell completion:
+  wsectl completion bash|zsh|fish|powershell
+
+More help:
+  wsectl help agent [--full] [--json]
+  wsectl help auth|config|doctor|output|examples|env|limits|completion
+  wsectl COMMAND --help

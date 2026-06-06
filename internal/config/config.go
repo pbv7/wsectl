@@ -1,0 +1,289 @@
+package config
+
+import (
+	"context"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/spf13/viper"
+)
+
+type Defaults struct {
+	Output    string `mapstructure:"output"`
+	RateLimit string `mapstructure:"rate_limit"`
+	Timeout   string `mapstructure:"timeout"`
+}
+
+// Profile identifies a Worksection account and the credential reference used
+// to authenticate requests for that account.
+type Profile struct {
+	AccountURL string `mapstructure:"account_url"`
+	AuthType   string `mapstructure:"auth_type"`
+	SecretRef  string `mapstructure:"secret_ref"`
+}
+
+// Config is the validated in-memory representation of config.toml plus
+// environment and flag overrides.
+type Config struct {
+	Path           string             `mapstructure:"-"`
+	CurrentProfile string             `mapstructure:"current_profile"`
+	Defaults       Defaults           `mapstructure:"defaults"`
+	Profiles       map[string]Profile `mapstructure:"profiles"`
+}
+
+// Overrides contains values supplied by global CLI flags.
+type Overrides struct {
+	ConfigPath string
+	Profile    string
+	AccountURL string
+	Output     string
+	Timeout    string
+	RateLimit  string
+	Debug      bool
+}
+
+// Builtin returns the fallback configuration used when no config file exists.
+func Builtin() Config {
+	return Config{
+		CurrentProfile: "default",
+		Defaults: Defaults{
+			Output:    "auto",
+			RateLimit: "1/s",
+			Timeout:   "30s",
+		},
+		Profiles: map[string]Profile{},
+	}
+}
+
+// Load reads config.toml, applies environment variables and flags, and returns
+// a typed configuration ready for command execution.
+func Load(_ context.Context, overrides Overrides) (Config, error) {
+	cfg := Builtin()
+	path := firstNonEmpty(overrides.ConfigPath, os.Getenv("WSECTL_CONFIG"), DefaultConfigPath())
+	v := viper.New()
+	v.SetConfigFile(path)
+	v.SetConfigType("toml")
+	if err := v.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok && !os.IsNotExist(err) {
+			return cfg, err
+		}
+	} else if err := v.Unmarshal(&cfg); err != nil {
+		return cfg, err
+	}
+	cfg.Path = path
+	applyEnv(&cfg)
+	applyOverrides(&cfg, overrides)
+	if cfg.Profiles == nil {
+		cfg.Profiles = map[string]Profile{}
+	}
+	return cfg, Validate(cfg)
+}
+
+// ActiveProfileName returns the selected profile after environment override
+// handling.
+func (c Config) ActiveProfileName() string {
+	if env := os.Getenv("WSECTL_PROFILE"); env != "" {
+		return env
+	}
+	if c.CurrentProfile == "" {
+		return "default"
+	}
+	return c.CurrentProfile
+}
+
+// ActiveProfile returns the active profile, falling back to environment-only
+// credentials when no configured profile exists.
+func (c Config) ActiveProfile() (string, Profile, error) {
+	name := c.ActiveProfileName()
+	p, ok := c.Profiles[name]
+	if !ok {
+		p = Profile{
+			AccountURL: os.Getenv("WSECTL_ACCOUNT_URL"),
+			AuthType:   "oauth2",
+			SecretRef:  "env:",
+		}
+		if p.AccountURL == "" {
+			return name, p, fmt.Errorf("profile %q not found and WSECTL_ACCOUNT_URL is not set", name)
+		}
+	}
+	if env := os.Getenv("WSECTL_ACCOUNT_URL"); env != "" {
+		p.AccountURL = env
+	}
+	return name, p, nil
+}
+
+// Timeout parses the effective request timeout.
+func (c Config) Timeout() time.Duration {
+	d, err := time.ParseDuration(firstNonEmpty(os.Getenv("WSECTL_TIMEOUT"), c.Defaults.Timeout, "30s"))
+	if err != nil {
+		return 30 * time.Second
+	}
+	return d
+}
+
+// RateLimit returns the effective rate-limit spec.
+func (c Config) RateLimit() string {
+	return firstNonEmpty(os.Getenv("WSECTL_RATE_LIMIT"), c.Defaults.RateLimit, "1/s")
+}
+
+// DefaultConfigPath returns the platform-specific default config path.
+func DefaultConfigPath() string {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "wsectl", "config.toml")
+	}
+	if runtime.GOOS == "windows" {
+		if appData := os.Getenv("AppData"); appData != "" {
+			return filepath.Join(appData, "wsectl", "config.toml")
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "config.toml"
+	}
+	return filepath.Join(home, ".config", "wsectl", "config.toml")
+}
+
+func applyEnv(cfg *Config) {
+	if v := os.Getenv("WSECTL_OUTPUT"); v != "" {
+		cfg.Defaults.Output = v
+	}
+	if v := os.Getenv("WSECTL_TIMEOUT"); v != "" {
+		cfg.Defaults.Timeout = v
+	}
+	if v := os.Getenv("WSECTL_RATE_LIMIT"); v != "" {
+		cfg.Defaults.RateLimit = v
+	}
+	if v := os.Getenv("WSECTL_PROFILE"); v != "" {
+		cfg.CurrentProfile = v
+	}
+}
+
+func applyOverrides(cfg *Config, o Overrides) {
+	if o.Profile != "" {
+		cfg.CurrentProfile = o.Profile
+	}
+	if o.Output != "" {
+		cfg.Defaults.Output = o.Output
+	}
+	if o.Timeout != "" {
+		cfg.Defaults.Timeout = o.Timeout
+	}
+	if o.RateLimit != "" {
+		cfg.Defaults.RateLimit = o.RateLimit
+	}
+	if o.AccountURL != "" {
+		name := cfg.ActiveProfileName()
+		p := cfg.Profiles[name]
+		p.AccountURL = o.AccountURL
+		if p.AuthType == "" {
+			p.AuthType = "oauth2"
+		}
+		cfg.Profiles[name] = p
+	}
+}
+
+// Save writes config.toml with owner-only permissions.
+func Save(cfg Config) error {
+	if cfg.Path == "" {
+		cfg.Path = DefaultConfigPath()
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.Path), 0o700); err != nil {
+		return err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "current_profile = %q\n\n", cfg.CurrentProfile)
+	fmt.Fprintf(&b, "[defaults]\noutput = %q\nrate_limit = %q\ntimeout = %q\n\n",
+		cfg.Defaults.Output, cfg.Defaults.RateLimit, cfg.Defaults.Timeout)
+	names := make([]string, 0, len(cfg.Profiles))
+	for name := range cfg.Profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		p := cfg.Profiles[name]
+		fmt.Fprintf(&b, "[profiles.%s]\naccount_url = %q\nauth_type = %q\nsecret_ref = %q\n\n",
+			name, p.AccountURL, p.AuthType, p.SecretRef)
+	}
+	return atomicWriteFile(cfg.Path, []byte(b.String()), 0o600)
+}
+
+func ValidateAccountURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return fmt.Errorf("invalid account URL %q", raw)
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("account URL must use https")
+	}
+	return nil
+}
+
+func ValidateSecretRef(ref string) error {
+	if ref == "" {
+		return nil
+	}
+	scheme, name, ok := strings.Cut(ref, ":")
+	if !ok || scheme == "" {
+		return fmt.Errorf("invalid secret_ref %q", ref)
+	}
+	switch scheme {
+	case "env":
+		return nil
+	case "keyring", "encrypted-file", "plaintext":
+		if name == "" {
+			return fmt.Errorf("secret_ref %q requires a target name or path", ref)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported secret store %q", scheme)
+	}
+}
+
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".wsectl-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}

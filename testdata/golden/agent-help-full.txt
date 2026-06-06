@@ -1,0 +1,136 @@
+wsectl agent guide (full)
+
+This is an unofficial tool and is not affiliated with Worksection.
+
+Operating rules:
+  Prefer --json or --ndjson. Never parse table output.
+  Use --out FILE for large responses.
+  Check meta.truncated and meta.warnings.
+  Use --schema --json before selecting fields for unfamiliar commands.
+  Use --profile NAME when account context matters.
+  Avoid request loops; Worksection documents a 1 request/second limit.
+  Never print tokens unless the user explicitly requests token material.
+
+Common workflows:
+  wsectl projects list --json
+  wsectl tasks search --query "invoice" --json
+  wsectl tasks all --extra text,files --json --out /tmp/tasks.json
+  wsectl api call get_users_schedule --param datestart=01.05.2026 --param dateend=31.05.2026 --json
+
+Discover capabilities:
+  wsectl commands --json
+  wsectl api actions --json
+  wsectl api schema ACTION --json
+  wsectl tasks search --schema --json
+  wsectl doctor --json
+
+Setup and authentication:
+  wsectl profiles add default --account-url https://company.worksection.com --auth-type oauth2
+  Set WSECTL_CLIENT_ID and WSECTL_CLIENT_SECRET in your shell.
+  wsectl auth login --client-id "$WSECTL_CLIENT_ID"
+  wsectl auth status --json
+  wsectl doctor --api --json
+
+  For desktop use: config.toml stores profiles; keyring stores tokens and client secrets.
+  Use wsectl profiles use NAME to change the default profile.
+  Use --profile NAME or WSECTL_PROFILE for temporary profile selection.
+
+  Admin token: profiles add admin --auth-type admin_token --secret-ref keyring:wsectl/admin
+  Encrypted file: profiles add portable --secret-ref encrypted-file:/path/to/secret.json
+
+  For CI: set WSECTL_ACCOUNT_URL and WSECTL_ACCESS_TOKEN.
+
+Output and errors:
+  Success: {"status":"ok","data":...,"meta":{...}}
+  Error:   {"status":"error","error":{"code":...,"message":...},"meta":{...}}
+  meta.contract_version and meta.response_shape describe the static output contract.
+  Exit codes: 2 usage, 3 auth, 4 permission, 5 network, 6 API, 7 rate limit, 8 truncation.
+  Use --fail-on-truncated when incomplete data must fail the run.
+
+API compatibility notes:
+  First-class commands normalize known Worksection quirks; api call uses raw API params.
+  projects list --status archived sends filter=archive.
+  tasks search --query TEXT sends a Worksection filter, not a search parameter.
+  costs --timer sends is_timer; files images filters client-side.
+  API calls use query-parameter POST mode; form-encoded API bodies are not supported.
+
+Safety model:
+  The MVP is read-only. Known Worksection mutation actions are rejected before a request.
+  Secrets live in keyring, environment, encrypted-file, or explicit plaintext stores.
+  Do not expose WSECTL_ACCESS_TOKEN, WSECTL_REFRESH_TOKEN, or WSECTL_CLIENT_SECRET.
+
+Worksection limits:
+  Default client rate: 1 request/second.
+  Some endpoints can return at most 10,000 records.
+  API params stay in the query string; very long filters can still hit URL limits.
+
+Command catalog:
+  wsectl api                     Low-level Worksection API access
+  wsectl api actions             List known Worksection API actions
+  wsectl api call                Call a read-only Worksection API action
+  wsectl api schema              Show known action parameters
+  wsectl auth                    Authenticate with Worksection
+  wsectl auth login              Start OAuth login or store manually supplied credentials
+  wsectl auth logout             Delete stored credentials for the active profile
+  wsectl auth refresh            Refresh OAuth token when stored refresh token is available
+  wsectl auth status             Show auth status
+  wsectl commands                List public commands
+  wsectl comments                Read comments
+  wsectl comments list           List task comments
+  wsectl completion              Generate shell completion scripts
+  wsectl completion bash         Generate the completion script for bash
+  wsectl completion fish         Generate the completion script for fish
+  wsectl completion powershell   Generate the completion script for powershell
+  wsectl completion zsh          Generate the completion script for zsh
+  wsectl costs                   Read costs
+  wsectl costs list              Read costs
+  wsectl costs total             Read costs
+  wsectl docs                    Documentation helpers
+  wsectl docs generate           Generate command reference
+  wsectl doctor                  Diagnose configuration, credentials, and optional API connectivity
+  wsectl files                   Read and download files
+  wsectl files download          Download a file
+  wsectl files images            List image files
+  wsectl files list              List files
+  wsectl files task-attachments  List task attachments
+  wsectl help                    Show detailed help
+  wsectl me                      Get authorized user info
+  wsectl profiles                Manage Worksection profiles
+  wsectl profiles add            Add or update a profile
+  wsectl profiles list           List profiles
+  wsectl profiles remove         Remove a profile
+  wsectl profiles show           Show a profile
+  wsectl profiles use            Set current profile
+  wsectl projects                Read projects
+  wsectl projects events         Get project events
+  wsectl projects get            Get a project
+  wsectl projects groups         List project groups
+  wsectl projects list           List projects
+  wsectl projects team           Get project team
+  wsectl tags                    Read task and project tags
+  wsectl tags project            Read project tags
+  wsectl tags project groups     List tag groups
+  wsectl tags project list       List tags
+  wsectl tags task               Read task tags
+  wsectl tags task groups        List tag groups
+  wsectl tags task list          List tags
+  wsectl tasks                   Read and search tasks
+  wsectl tasks all               List all account tasks
+  wsectl tasks discussion        Get task comments
+  wsectl tasks get               Get a task
+  wsectl tasks list              List project tasks
+  wsectl tasks relations         Get task relations
+  wsectl tasks search            Search tasks
+  wsectl tasks subscribers       Get task subscribers
+  wsectl tasks subtasks          Get task subtasks
+  wsectl timers                  Read timers
+  wsectl timers list             List enabled member timers
+  wsectl timers mine             Get current user timer
+  wsectl users                   Read users, groups, contacts, and schedules
+  wsectl users contact-groups    List contact groups
+  wsectl users contacts          List contacts
+  wsectl users groups            List user groups
+  wsectl users list              List users
+  wsectl users schedule          List users' non-working days
+  wsectl webhooks                Read webhooks
+  wsectl webhooks list           List webhooks

@@ -1,0 +1,36 @@
+version: 2
+
+project_name: wsectl
+
+builds:
+  - main: ./cmd/wsectl
+    binary: wsectl
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X github.com/pbv7/wsectl/internal/app.Version={{.Version}} -X github.com/pbv7/wsectl/internal/app.Commit={{.Commit}} -X github.com/pbv7/wsectl/internal/app.Date={{.Date}}
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+      - docs/**/*
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+
+sboms:
+  - artifacts: archive
