@@ -722,7 +722,7 @@ func TestGeneratedCommandReferenceIsCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := renderCommandReference(collectCommands(NewRoot("test", "commit", "date")))
-	if got != string(want) {
+	if normalizeText(got) != normalizeText(string(want)) {
 		t.Fatal("docs/command-reference.md is stale; run `wsectl docs generate --out docs/command-reference.md`")
 	}
 }
@@ -792,7 +792,11 @@ func assertGolden(t *testing.T, name, got string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != string(want) {
+	if normalizeText(got) != normalizeText(string(want)) {
 		t.Fatalf("%s does not match generated output", name)
 	}
+}
+
+func normalizeText(s string) string {
+	return strings.ReplaceAll(s, "\r\n", "\n")
 }
