@@ -2,6 +2,10 @@ version: "2"
 
 run:
   timeout: 5m
+  # Keep test-file linting disabled until the local Go/golangci-lint loader issue
+  # is resolved. With Go 1.26.4 and golangci-lint 2.12.2, enabling tests can
+  # fail with "no go files to analyze" even though `go test` and `go list` pass.
+  # Tests are still compiled and executed by `make check` and `make race`.
   tests: false
 
 linters:

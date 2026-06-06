@@ -22,6 +22,12 @@ make release-check
 
 `make coverage` may need loopback access because some tests use `httptest.Server`.
 
+`make lint` intentionally lints production Go files only for now. Local Go
+1.26.4 with golangci-lint 2.12.2 can fail while loading test packages with
+`no go files to analyze`, even though `go test` and `go list` succeed. Tests
+are still compiled and run by `make check` and `make race`; re-enable
+golangci-lint test-file linting after the toolchain issue is resolved.
+
 ## Documentation
 
 Command reference docs are generated from command metadata:
