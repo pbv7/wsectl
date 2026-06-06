@@ -36,7 +36,7 @@ jobs:
         with:
           go-version-input: stable
           go-package: ./...
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           version: v2.7.0
           args: check
