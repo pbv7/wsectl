@@ -93,96 +93,161 @@ func Run(ctx context.Context, opts Options, deps Dependencies) (Report, error) {
 		return finalize(report, worksection.CodeUsage)
 	}
 	report.ConfigPath = cfg.Path
-	checkConfigFile(&report, cfg.Path, deps)
-	if err := config.Validate(cfg); err != nil {
-		add(&report, StatusFail, "config_validation", err.Error(), "Correct the invalid configuration value.")
-	} else {
-		add(&report, StatusOK, "config_validation", "configuration values are valid", "")
+	checkConfig(&report, cfg, deps)
+	profile, err := checkActiveProfile(&report, cfg)
+	if err != nil {
+		return finalize(report, worksection.CodeUsage)
 	}
-	checkProfileNames(&report, cfg)
-	if _, err := worksection.NewLimiter(cfg.RateLimit()); err != nil {
-		add(&report, StatusFail, "rate_limit", err.Error(), "Set rate_limit to a value such as 1/s.")
-	} else {
-		add(&report, StatusOK, "rate_limit", "effective rate limit is "+cfg.RateLimit(), "")
+	authType := checkProfileSettings(&report, profile)
+	ref, err := checkSecretReference(&report, profile)
+	if err != nil {
+		return finalize(report, worksection.CodeUsage)
 	}
-	if cfg.Timeout() <= 0 {
-		add(&report, StatusFail, "timeout", "effective timeout must be positive", "Set timeout to a positive duration such as 30s.")
-	} else {
-		add(&report, StatusOK, "timeout", "effective timeout is "+cfg.Timeout().String(), "")
+	if err := checkSecretBackend(&report, ref); err != nil {
+		return finalize(report, worksection.CodeUsage)
 	}
+	secret, err := checkCredentials(ctx, &report, deps, ref, authType)
+	if err != nil {
+		return finalize(report, worksection.CodeAuth)
+	}
+	if checkExpiry(&report, authType, secret, deps.Now()) {
+		return finalize(report, worksection.CodeAuth)
+	}
+	if code, failed := checkAPI(ctx, opts, deps, &report); failed {
+		return finalize(report, code)
+	}
+	return finalize(report, worksection.CodeGeneral)
+}
 
+func checkConfig(report *Report, cfg config.Config, deps Dependencies) {
+	checkConfigFile(report, cfg.Path, deps)
+	checkConfigValidation(report, cfg)
+	checkProfileNames(report, cfg)
+	checkRateLimit(report, cfg)
+	checkTimeout(report, cfg)
+}
+
+func checkConfigValidation(report *Report, cfg config.Config) {
+	if err := config.Validate(cfg); err != nil {
+		add(report, StatusFail, "config_validation", err.Error(), "Correct the invalid configuration value.")
+		return
+	}
+	add(report, StatusOK, "config_validation", "configuration values are valid", "")
+}
+
+func checkRateLimit(report *Report, cfg config.Config) {
+	if _, err := worksection.NewLimiter(cfg.RateLimit()); err != nil {
+		add(report, StatusFail, "rate_limit", err.Error(), "Set rate_limit to a value such as 1/s.")
+		return
+	}
+	add(report, StatusOK, "rate_limit", "effective rate limit is "+cfg.RateLimit(), "")
+}
+
+func checkTimeout(report *Report, cfg config.Config) {
+	if cfg.Timeout() <= 0 {
+		add(report, StatusFail, "timeout", "effective timeout must be positive", "Set timeout to a positive duration such as 30s.")
+		return
+	}
+	add(report, StatusOK, "timeout", "effective timeout is "+cfg.Timeout().String(), "")
+}
+
+func checkActiveProfile(report *Report, cfg config.Config) (config.Profile, error) {
 	profileName, profile, err := cfg.ActiveProfile()
 	report.Profile = profileName
 	if err != nil {
-		add(&report, StatusFail, "profile", err.Error(), "Run `wsectl profiles add NAME --account-url URL --auth-type oauth2` or set WSECTL_ACCOUNT_URL.")
-		return finalize(report, worksection.CodeUsage)
+		add(report, StatusFail, "profile", err.Error(), "Run `wsectl profiles add NAME --account-url URL --auth-type oauth2` or set WSECTL_ACCOUNT_URL.")
+		return profile, err
 	}
-	add(&report, StatusOK, "profile", "active profile is "+profileName, "")
-	report.AccountURL = profile.AccountURL
-	if err := validateAccountURL(profile.AccountURL); err != nil {
-		add(&report, StatusFail, "account_url", err.Error(), "Set a valid HTTPS Worksection account URL.")
-	} else {
-		add(&report, StatusOK, "account_url", profile.AccountURL, "")
-	}
+	add(report, StatusOK, "profile", "active profile is "+profileName, "")
+	return profile, nil
+}
 
-	authType := profile.AuthType
+func checkProfileSettings(report *Report, profile config.Profile) string {
+	report.AccountURL = profile.AccountURL
+	checkAccountURL(report, profile.AccountURL)
+	return checkAuthType(report, profile.AuthType)
+}
+
+func checkAccountURL(report *Report, accountURL string) {
+	if err := validateAccountURL(accountURL); err != nil {
+		add(report, StatusFail, "account_url", err.Error(), "Set a valid HTTPS Worksection account URL.")
+		return
+	}
+	add(report, StatusOK, "account_url", accountURL, "")
+}
+
+func checkAuthType(report *Report, authType string) string {
 	if authType == "" {
 		authType = "oauth2"
 	}
 	switch authType {
 	case "oauth2", "admin_token":
-		add(&report, StatusOK, "auth_type", authType, "")
+		add(report, StatusOK, "auth_type", authType, "")
 	default:
-		add(&report, StatusFail, "auth_type", "unsupported auth type "+authType, "Use oauth2 or admin_token.")
+		add(report, StatusFail, "auth_type", "unsupported auth type "+authType, "Use oauth2 or admin_token.")
 	}
+	return authType
+}
 
+func checkSecretReference(report *Report, profile config.Profile) (auth.SecretRef, error) {
 	ref, err := auth.ParseRef(profile.SecretRef)
 	if err != nil {
-		add(&report, StatusFail, "secret_ref", err.Error(), "Fix the profile secret_ref.")
-		return finalize(report, worksection.CodeUsage)
+		add(report, StatusFail, "secret_ref", err.Error(), "Fix the profile secret_ref.")
+		return ref, err
 	}
-	add(&report, StatusOK, "secret_ref", ref.Scheme+" secret store selected", "")
+	add(report, StatusOK, "secret_ref", ref.Scheme+" secret store selected", "")
 	if ref.Scheme == "plaintext" {
-		add(&report, StatusWarn, "plaintext_store", "plaintext secret storage is enabled", "Use keyring or encrypted-file storage for persistent credentials.")
+		add(report, StatusWarn, "plaintext_store", "plaintext secret storage is enabled", "Use keyring or encrypted-file storage for persistent credentials.")
 	}
-	if _, err := auth.StoreFor(ref); err != nil {
-		remediation := "Use a supported secret store: keyring, env, encrypted-file, or plaintext."
-		if ref.Scheme == "keyring" {
-			remediation = disabledKeyringBackendRemediation
-		}
-		add(&report, StatusFail, "secret_backend", err.Error(), remediation)
-		return finalize(report, worksection.CodeUsage)
-	}
-	add(&report, StatusOK, "secret_backend", ref.Scheme+" backend is supported", "")
+	return ref, nil
+}
 
+func checkSecretBackend(report *Report, ref auth.SecretRef) error {
+	if _, err := auth.StoreFor(ref); err != nil {
+		add(report, StatusFail, "secret_backend", err.Error(), secretBackendRemediation(ref))
+		return err
+	}
+	add(report, StatusOK, "secret_backend", ref.Scheme+" backend is supported", "")
+	return nil
+}
+
+func secretBackendRemediation(ref auth.SecretRef) string {
+	if ref.Scheme == "keyring" {
+		return disabledKeyringBackendRemediation
+	}
+	return "Use a supported secret store: keyring, env, encrypted-file, or plaintext."
+}
+
+func checkCredentials(ctx context.Context, report *Report, deps Dependencies, ref auth.SecretRef, authType string) (auth.SecretBundle, error) {
 	secret, err := deps.LoadSecret(ctx, ref)
 	if err != nil {
-		add(&report, StatusFail, "credentials", "credentials are unavailable from the "+ref.Scheme+" backend", credentialRemediation(ref, authType))
-		return finalize(report, worksection.CodeAuth)
+		add(report, StatusFail, "credentials", "credentials are unavailable from the "+ref.Scheme+" backend", credentialRemediation(ref, authType))
+		return auth.SecretBundle{}, err
 	}
 	if err := validateCredentials(authType, secret); err != nil {
-		add(&report, StatusFail, "credentials", err.Error(), "Run `wsectl auth login` or provide the required WSECTL_* credential variable.")
-		return finalize(report, worksection.CodeAuth)
+		add(report, StatusFail, "credentials", err.Error(), "Run `wsectl auth login` or provide the required WSECTL_* credential variable.")
+		return auth.SecretBundle{}, err
 	}
-	add(&report, StatusOK, "credentials", credentialSummary(authType, secret), "")
-	if checkExpiry(&report, authType, secret, deps.Now()) {
-		return finalize(report, worksection.CodeAuth)
-	}
+	add(report, StatusOK, "credentials", credentialSummary(authType, secret), "")
+	return secret, nil
+}
 
-	if opts.CheckAPI && !hasFailure(report.Checks) {
-		report.APIChecked = true
-		if deps.APICheck == nil {
-			add(&report, StatusFail, "api", "API diagnostic is unavailable", "Retry without --api or reinstall wsectl.")
-			return finalize(report, worksection.CodeGeneral)
-		}
-		if err := deps.APICheck(ctx); err != nil {
-			code := classifyAPIError(err)
-			add(&report, StatusFail, "api", err.Error(), apiRemediation(code))
-			return finalize(report, code)
-		}
-		add(&report, StatusOK, "api", "authenticated `me` request succeeded", "")
+func checkAPI(ctx context.Context, opts Options, deps Dependencies, report *Report) (worksection.ErrorCode, bool) {
+	if !opts.CheckAPI || hasFailure(report.Checks) {
+		return worksection.CodeGeneral, false
 	}
-	return finalize(report, worksection.CodeGeneral)
+	report.APIChecked = true
+	if deps.APICheck == nil {
+		add(report, StatusFail, "api", "API diagnostic is unavailable", "Retry without --api or reinstall wsectl.")
+		return worksection.CodeGeneral, true
+	}
+	if err := deps.APICheck(ctx); err != nil {
+		code := classifyAPIError(err)
+		add(report, StatusFail, "api", err.Error(), apiRemediation(code))
+		return code, true
+	}
+	add(report, StatusOK, "api", "authenticated `me` request succeeded", "")
+	return worksection.CodeGeneral, false
 }
 
 func credentialRemediation(ref auth.SecretRef, authType string) string {
