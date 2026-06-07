@@ -144,23 +144,24 @@ func (s *state) configOverrides() config.Overrides {
 	}
 }
 
-func (s *state) client(ctx context.Context) (*worksection.Client, string, config.Profile, error) {
+func (s *state) client(ctx context.Context) (*worksection.Client, string, config.Profile, bool, error) {
 	cfg, err := s.loadConfig(ctx)
 	if err != nil {
-		return nil, "", config.Profile{}, err
+		return nil, "", config.Profile{}, false, err
 	}
 	profileName, p, err := cfg.ActiveProfile()
 	if err != nil {
-		return nil, profileName, p, &worksection.Error{Code: worksection.CodeUsage, Message: err.Error()}
+		return nil, profileName, p, false, &worksection.Error{Code: worksection.CodeUsage, Message: err.Error()}
 	}
 	ref, err := auth.ParseRef(p.SecretRef)
 	if err != nil {
-		return nil, profileName, p, err
+		return nil, profileName, p, false, err
 	}
 	store, err := auth.StoreFor(ref)
 	if err != nil {
-		return nil, profileName, p, err
+		return nil, profileName, p, false, err
 	}
+	usedEnvFallback := false
 	secret, err := store.Get(ctx, ref)
 	if err != nil && ref.Scheme != "env" {
 		if envStore, envErr := auth.StoreFor(auth.SecretRef{Scheme: "env", Name: ""}); envErr == nil {
@@ -170,22 +171,23 @@ func (s *state) client(ctx context.Context) (*worksection.Client, string, config
 				secret = envSecret
 				store = envStore
 				ref = envRef
+				usedEnvFallback = true
 				err = nil
 			}
 		}
 	}
 	if err != nil {
-		return nil, profileName, p, &worksection.Error{Code: worksection.CodeAuth, Message: err.Error()}
+		return nil, profileName, p, false, &worksection.Error{Code: worksection.CodeAuth, Message: err.Error()}
 	}
 	if firstNonEmpty(p.AuthType, "oauth2") == "oauth2" && auth.NeedsRefresh(secret.AccessExpires, time.Now()) && secret.RefreshToken != "" {
 		oauthClient := auth.HTTPClientWithTimeout(cfg.Timeout())
 		refreshed, refreshErr := auth.Refresh(ctx, oauthClient, secret)
 		if refreshErr != nil {
-			return nil, profileName, p, &worksection.Error{Code: worksection.CodeAuth, Message: refreshErr.Error()}
+			return nil, profileName, p, false, &worksection.Error{Code: worksection.CodeAuth, Message: refreshErr.Error()}
 		}
 		secret = refreshed
 		if err := store.Set(ctx, ref, secret); err != nil {
-			return nil, profileName, p, &worksection.Error{Code: worksection.CodeAuth, Message: "refreshed OAuth token could not be persisted: " + err.Error()}
+			return nil, profileName, p, false, &worksection.Error{Code: worksection.CodeAuth, Message: "refreshed OAuth token could not be persisted: " + err.Error()}
 		}
 	}
 	accountURL := firstNonEmpty(secret.AccountURL, p.AccountURL)
@@ -197,9 +199,9 @@ func (s *state) client(ctx context.Context) (*worksection.Client, string, config
 	}
 	limiter, err := worksection.NewLimiter(cfg.RateLimit())
 	if err != nil {
-		return nil, profileName, p, err
+		return nil, profileName, p, false, err
 	}
-	return worksection.NewClient(nil, creds, cfg.Timeout(), limiter), profileName, p, nil
+	return worksection.NewClient(nil, creds, cfg.Timeout(), limiter), profileName, p, usedEnvFallback, nil
 }
 
 func envSecretUsable(authType string, secret auth.SecretBundle) bool {
@@ -220,9 +222,12 @@ func (s *state) runActionWithOptions(cmd *cobra.Command, action string, params m
 	if err := worksection.ValidateAction(action, params, allowUnknown); err != nil {
 		return writeFailure(cmd.OutOrStderr(), s, action, "", err)
 	}
-	client, profileName, p, err := s.client(cmd.Context())
+	client, profileName, p, usedEnvFallback, err := s.client(cmd.Context())
 	if err != nil {
 		return writeFailure(cmd.OutOrStderr(), s, action, profileName, err)
+	}
+	if usedEnvFallback {
+		s.writeDiagnostic(cmd, "profile=%s secret_ref=%s unavailable; using environment credentials", profileName, firstNonEmpty(p.SecretRef, "[none]"))
 	}
 	s.writeDiagnostic(cmd, "action=%s profile=%s account_url=%s", action, profileName, firstNonEmpty(p.AccountURL, "[unknown]"))
 	raw, err := client.CallRaw(cmd.Context(), action, params)

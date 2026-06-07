@@ -23,6 +23,23 @@ func TestLoadEnvOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadAttributesInvalidEnvOutput(t *testing.T) {
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_OUTPUT", "invalid")
+	_, err := Load(context.Background(), Overrides{})
+	if err == nil || !strings.Contains(err.Error(), `WSECTL_OUTPUT="invalid"`) || !strings.Contains(err.Error(), `invalid output "invalid"`) {
+		t.Fatalf("expected attributed WSECTL_OUTPUT error, got %v", err)
+	}
+
+	cfg, err := Load(context.Background(), Overrides{Output: "json"})
+	if err != nil {
+		t.Fatalf("flag output override should take precedence over invalid env output: %v", err)
+	}
+	if cfg.Defaults.Output != "json" {
+		t.Fatalf("output override = %q, want json", cfg.Defaults.Output)
+	}
+}
+
 func TestLoadFlagOverridesAndActiveProfile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte(`current_profile = "default"
@@ -127,6 +144,35 @@ func TestValidateAllowsExistingUnusualProfileName(t *testing.T) {
 	cfg.Profiles["client.acme"] = Profile{AccountURL: "https://company.worksection.com", AuthType: "oauth2", SecretRef: "keyring:wsectl/client.acme"}
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("existing unusual profile names should not fail config load: %v", err)
+	}
+}
+
+func TestSaveQuotesLegacyProfileNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := Builtin()
+	cfg.Path = path
+	cfg.CurrentProfile = "client.acme"
+	cfg.Profiles["client.acme"] = Profile{
+		AccountURL: "https://company.worksection.com",
+		AuthType:   "oauth2",
+		SecretRef:  "keyring:wsectl/client.acme",
+	}
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `[profiles."client.acme"]`) {
+		t.Fatalf("legacy profile key was not quoted:\n%s", raw)
+	}
+	loaded, err := Load(context.Background(), Overrides{ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := loaded.Profiles["client.acme"]; !ok {
+		t.Fatalf("legacy profile did not round-trip: %#v", loaded.Profiles)
 	}
 }
 

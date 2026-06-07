@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,7 +68,7 @@ func Builtin() Config {
 func Load(_ context.Context, overrides Overrides) (Config, error) {
 	cfg := Builtin()
 	path := firstNonEmpty(overrides.ConfigPath, os.Getenv("WSECTL_CONFIG"), DefaultConfigPath())
-	v := viper.New()
+	v := viper.NewWithOptions(viper.KeyDelimiter("::"))
 	v.SetConfigFile(path)
 	v.SetConfigType("toml")
 	if err := v.ReadInConfig(); err != nil {
@@ -78,12 +79,15 @@ func Load(_ context.Context, overrides Overrides) (Config, error) {
 		return cfg, err
 	}
 	cfg.Path = path
-	applyEnv(&cfg)
+	envSources := applyEnv(&cfg)
 	applyOverrides(&cfg, overrides)
 	if cfg.Profiles == nil {
 		cfg.Profiles = map[string]Profile{}
 	}
-	return cfg, Validate(cfg)
+	if err := Validate(cfg); err != nil {
+		return cfg, envOverrideError(err, envSources, overrides)
+	}
+	return cfg, nil
 }
 
 // ActiveProfileName returns the selected profile after environment override
@@ -150,19 +154,30 @@ func DefaultConfigPath() string {
 	return filepath.Join(home, ".config", "wsectl", "config.toml")
 }
 
-func applyEnv(cfg *Config) {
+type envSources struct {
+	output    string
+	timeout   string
+	rateLimit string
+}
+
+func applyEnv(cfg *Config) envSources {
+	var sources envSources
 	if v := os.Getenv("WSECTL_OUTPUT"); v != "" {
 		cfg.Defaults.Output = v
+		sources.output = v
 	}
 	if v := os.Getenv("WSECTL_TIMEOUT"); v != "" {
 		cfg.Defaults.Timeout = v
+		sources.timeout = v
 	}
 	if v := os.Getenv("WSECTL_RATE_LIMIT"); v != "" {
 		cfg.Defaults.RateLimit = v
+		sources.rateLimit = v
 	}
 	if v := os.Getenv("WSECTL_PROFILE"); v != "" {
 		cfg.CurrentProfile = v
 	}
+	return sources
 }
 
 func applyOverrides(cfg *Config, o Overrides) {
@@ -209,9 +224,30 @@ func Save(cfg Config) error {
 	for _, name := range names {
 		p := cfg.Profiles[name]
 		fmt.Fprintf(&b, "[profiles.%s]\naccount_url = %q\nauth_type = %q\nsecret_ref = %q\n\n",
-			name, p.AccountURL, p.AuthType, p.SecretRef)
+			tomlProfileKey(name), p.AccountURL, p.AuthType, p.SecretRef)
 	}
 	return atomicfile.WriteFile(cfg.Path, []byte(b.String()), 0o600)
+}
+
+func envOverrideError(err error, sources envSources, overrides Overrides) error {
+	msg := err.Error()
+	if overrides.Output == "" && sources.output != "" && strings.Contains(msg, "invalid output") {
+		return fmt.Errorf("WSECTL_OUTPUT=%q: %w", sources.output, err)
+	}
+	if overrides.Timeout == "" && sources.timeout != "" && strings.Contains(msg, "timeout") {
+		return fmt.Errorf("WSECTL_TIMEOUT=%q: %w", sources.timeout, err)
+	}
+	if overrides.RateLimit == "" && sources.rateLimit != "" && strings.Contains(msg, "rate limit") {
+		return fmt.Errorf("WSECTL_RATE_LIMIT=%q: %w", sources.rateLimit, err)
+	}
+	return err
+}
+
+func tomlProfileKey(name string) string {
+	if ValidateNewProfileName(name) == nil {
+		return name
+	}
+	return strconv.Quote(name)
 }
 
 func ValidateAccountURL(raw string) error {

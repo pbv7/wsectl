@@ -315,6 +315,48 @@ func TestRawOutputHonorsOutFile(t *testing.T) {
 	}
 }
 
+func TestVerboseEnvFallbackDiagnostic(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer env-token" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		_, _ = w.Write([]byte(`{"status":"ok","data":{"id":"1","name":"Ada"}}`))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	missingSecretPath := filepath.Join(dir, "missing-secret.json")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`current_profile = "default"
+
+[defaults]
+output = "json"
+rate_limit = "1/s"
+timeout = "30s"
+
+[profiles.default]
+account_url = "https://company.worksection.com"
+auth_type = "oauth2"
+secret_ref = %q
+`, "plaintext:"+missingSecretPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WSECTL_CONFIG", configPath)
+	t.Setenv("WSECTL_ACCOUNT_URL", server.URL)
+	t.Setenv("WSECTL_ACCESS_TOKEN", "env-token")
+
+	out, err := execute("me", "--verbose", "--output", "table")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "using environment credentials") || !strings.Contains(out, "plaintext:") {
+		t.Fatalf("verbose env fallback diagnostic missing:\n%s", out)
+	}
+	if strings.Contains(out, "env-token") {
+		t.Fatalf("verbose output exposed env token:\n%s", out)
+	}
+}
+
 func TestDoctorJSONErrorIsSingleEnvelope(t *testing.T) {
 	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 	t.Setenv("WSECTL_ACCOUNT_URL", "https://company.worksection.com")

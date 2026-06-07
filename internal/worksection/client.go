@@ -202,14 +202,10 @@ func (c *Client) validateDownloadURL(downloadURL string) error {
 }
 
 func normalizeHTTPSHost(u *url.URL) string {
-	host := strings.TrimSuffix(strings.ToLower(u.Host), ".")
 	hostname := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
 	port := u.Port()
 	if port == "" || port == "443" {
 		return hostname
-	}
-	if hostname == "" {
-		return host
 	}
 	if strings.Contains(hostname, ":") {
 		return "[" + hostname + "]:" + port

@@ -30,7 +30,7 @@ func newFilesCommand(s *state) *cobra.Command {
 			if out == "" {
 				return worksection.UsageError("binary download requires --out FILE or --out -")
 			}
-			client, _, _, err := s.client(cmd.Context())
+			client, _, _, _, err := s.client(cmd.Context())
 			if err != nil {
 				return err
 			}

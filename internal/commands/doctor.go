@@ -22,7 +22,7 @@ func newDoctorCommand(s *state) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			deps := doctor.DefaultDependencies()
 			deps.APICheck = func(ctx context.Context) error {
-				client, _, _, err := s.client(ctx)
+				client, _, _, _, err := s.client(ctx)
 				if err != nil {
 					return err
 				}
