@@ -180,14 +180,16 @@ WSECTL_ACCOUNT_URL
 
 ## Secret Stores
 
-- `keyring`: default OS keychain backend.
+- `keyring`: default OS keychain backend. `wsectl` enables macOS Keychain, Windows Credential Manager, Linux Secret Service, KWallet, and Pass. It intentionally disables the 99designs File and KeyCtl backends.
 - `env`: read-only environment backend.
 - `encrypted-file`: explicit portable fallback, protected by `WSECTL_SECRET_PASSPHRASE` with versioned Argon2id/AES-GCM payloads. Legacy payloads are read and rewritten in the new format on the next successful save.
-- `plaintext`: explicit opt-in only.
+- `plaintext`: explicit opt-in only. Human-mode login prints a warning to stderr before writing plaintext secrets.
 
 No command prints tokens by default.
 
 `auth login` verifies that the selected secret store is writable before starting browser OAuth. Environment credentials are read-only, so use `keyring`, `encrypted-file`, or `plaintext` for interactive login.
+
+If doctor reports that a keyring backend is not enabled, re-run `auth login` with a supported OS keychain backend, or explicitly migrate the profile to `encrypted-file:PATH` and log in again. File and KeyCtl keyring backends are intentionally disabled.
 
 Portable encrypted-file profile:
 

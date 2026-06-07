@@ -45,40 +45,67 @@ func Refresh(ctx context.Context, client *http.Client, b SecretBundle) (SecretBu
 	form.Set("client_secret", b.ClientSecret)
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", b.RefreshToken)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, RefreshURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return b, err
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, RefreshURL, strings.NewReader(form.Encode()))
+		if err != nil {
+			return b, err
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			if attempt < 2 {
+				if sleepErr := sleepContext(ctx, time.Duration(attempt+1)*time.Second); sleepErr != nil {
+					return b, sleepErr
+				}
+				continue
+			}
+			return b, err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			lastErr = oauthHTTPError("oauth refresh failed", resp)
+			_ = resp.Body.Close()
+			if !retryOAuthStatus(resp.StatusCode) || attempt == 2 {
+				return b, lastErr
+			}
+			delay := time.Duration(attempt+1) * time.Second
+			if resp.StatusCode == http.StatusTooManyRequests {
+				if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+					if parsedDelay, err := parseRetryAfter(retryAfter, time.Now()); err == nil {
+						delay = parsedDelay
+					}
+				}
+			}
+			if err := sleepContext(ctx, delay); err != nil {
+				return b, err
+			}
+			continue
+		}
+		defer func() { _ = resp.Body.Close() }()
+		var body struct {
+			AccessToken  string `json:"access_token"`
+			RefreshToken string `json:"refresh_token"`
+			ExpiresIn    int    `json:"expires_in"`
+			AccountURL   string `json:"account_url"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			return b, err
+		}
+		if body.AccessToken == "" || body.RefreshToken == "" {
+			return b, fmt.Errorf("oauth refresh response did not include tokens")
+		}
+		b.AccessToken = body.AccessToken
+		b.RefreshToken = body.RefreshToken
+		if body.AccountURL != "" {
+			b.AccountURL = body.AccountURL
+		}
+		if body.ExpiresIn > 0 {
+			b.AccessExpires = time.Now().Add(time.Duration(body.ExpiresIn) * time.Second)
+		}
+		return b, nil
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := client.Do(req)
-	if err != nil {
-		return b, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return b, oauthHTTPError("oauth refresh failed", resp)
-	}
-	var body struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
-		AccountURL   string `json:"account_url"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return b, err
-	}
-	if body.AccessToken == "" || body.RefreshToken == "" {
-		return b, fmt.Errorf("oauth refresh response did not include tokens")
-	}
-	b.AccessToken = body.AccessToken
-	b.RefreshToken = body.RefreshToken
-	if body.AccountURL != "" {
-		b.AccountURL = body.AccountURL
-	}
-	if body.ExpiresIn > 0 {
-		b.AccessExpires = time.Now().Add(time.Duration(body.ExpiresIn) * time.Second)
-	}
-	return b, nil
+	return b, lastErr
 }
 
 // ExchangeCode exchanges a Worksection OAuth authorization code for access and
@@ -148,6 +175,39 @@ func oauthHTTPError(prefix string, resp *http.Response) error {
 		}
 	}
 	return fmt.Errorf("%s with HTTP %d", prefix, resp.StatusCode)
+}
+
+func retryOAuthStatus(status int) bool {
+	return status == http.StatusTooManyRequests || status >= 500
+}
+
+func parseRetryAfter(value string, now time.Time) (time.Duration, error) {
+	if seconds, err := time.ParseDuration(value + "s"); err == nil {
+		return seconds, nil
+	}
+	when, err := http.ParseTime(value)
+	if err != nil {
+		return 0, err
+	}
+	d := when.Sub(now)
+	if d < 0 {
+		return 0, nil
+	}
+	return d, nil
+}
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func firstOAuthMessage(values ...string) string {

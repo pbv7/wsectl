@@ -189,10 +189,10 @@ func TestClientDownloadFromJSONURL(t *testing.T) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body:       io.NopCloser(strings.NewReader(`{"status":"ok","data":{"url":"https://files.example.test/report.txt","name":"report.txt"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"status":"ok","data":{"url":"https://example.test/report.txt","name":"report.txt"}}`)),
 			}, nil
 		}
-		if r.URL.String() != "https://files.example.test/report.txt" {
+		if r.URL.String() != "https://example.test/report.txt" {
 			t.Fatalf("download URL = %s", r.URL.String())
 		}
 		if r.Header.Get("Authorization") != "Bearer x" {
@@ -214,6 +214,47 @@ func TestClientDownloadFromJSONURL(t *testing.T) {
 	}
 }
 
+func TestClientDownloadBlocksCrossHostURL(t *testing.T) {
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"status":"ok","data":{"url":"https://files.example.test/report.txt","name":"report.txt"}}`)),
+		}, nil
+	})
+	client := NewClient(&http.Client{Transport: rt}, Credentials{Mode: AuthOAuth2, AccountURL: "https://example.test", Token: "x"}, time.Second, nil)
+	_, err := client.Download(context.Background(), "file-1")
+	if err == nil {
+		t.Fatal("expected blocked download error")
+	}
+	wsErr, ok := err.(*Error)
+	if !ok || wsErr.Code != CodeUsage || wsErr.Details["reason"] != "download_host_mismatch" {
+		t.Fatalf("unexpected error %#v", err)
+	}
+	if wsErr.Details["expected_host"] != "example.test" || wsErr.Details["actual_host"] != "files.example.test" {
+		t.Fatalf("unexpected mismatch details %#v", wsErr.Details)
+	}
+}
+
+func TestClientDownloadBlocksInsecureURL(t *testing.T) {
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"status":"ok","data":{"url":"http://example.test/report.txt","name":"report.txt"}}`)),
+		}, nil
+	})
+	client := NewClient(&http.Client{Transport: rt}, Credentials{Mode: AuthOAuth2, AccountURL: "https://example.test", Token: "x"}, time.Second, nil)
+	_, err := client.Download(context.Background(), "file-1")
+	if err == nil {
+		t.Fatal("expected insecure download error")
+	}
+	wsErr, ok := err.(*Error)
+	if !ok || wsErr.Code != CodeUsage || wsErr.Details["reason"] != "download_insecure_url" {
+		t.Fatalf("unexpected error %#v", err)
+	}
+}
+
 func TestClientDownloadJSONMissingURL(t *testing.T) {
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{
@@ -226,6 +267,18 @@ func TestClientDownloadJSONMissingURL(t *testing.T) {
 	_, err := client.Download(context.Background(), "file-1")
 	if err == nil {
 		t.Fatal("expected missing URL error")
+	}
+}
+
+func TestRedactMasksMultipleSecretMarkers(t *testing.T) {
+	got := redact("access_token=one&refresh_token=two Authorization: Bearer three\naccess_token=four")
+	for _, secret := range []string{"one", "two", "three", "four"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("redacted text still contains %q: %s", secret, got)
+		}
+	}
+	if strings.Count(got, "[REDACTED]") != 4 {
+		t.Fatalf("unexpected redaction output: %s", got)
 	}
 }
 
@@ -274,6 +327,18 @@ func TestClientResponseSizeLimit(t *testing.T) {
 	_, err := client.CallRaw(context.Background(), "get_users", nil)
 	if err == nil || !strings.Contains(err.Error(), "exceeded") {
 		t.Fatalf("expected size limit error, got %v", err)
+	}
+}
+
+func TestRequestForAttemptRejectsNonReplayableBody(t *testing.T) {
+	req, err := http.NewRequest(http.MethodPost, "https://example.test", strings.NewReader("body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.GetBody = nil
+	_, err = requestForAttempt(req)
+	if err == nil || !strings.Contains(err.Error(), "cannot be replayed") {
+		t.Fatalf("expected non-replayable body error, got %v", err)
 	}
 }
 

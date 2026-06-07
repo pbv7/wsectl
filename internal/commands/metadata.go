@@ -126,6 +126,7 @@ var metadataByPath = map[string]commandMetadata{
 	"wsectl users groups":           apiMeta("users", []string{"get_user_groups"}, allDataModes()...),
 	"wsectl users list":             apiMeta("users", []string{"get_users"}, allDataModes()...),
 	"wsectl users schedule":         apiMeta("users", []string{"get_users_schedule"}, allDataModes()...),
+	"wsectl version":                localMeta("discovery", "text", "json", "yaml", "table", "ndjson", "raw"),
 	"wsectl webhooks":               groupMeta("webhooks"),
 	"wsectl webhooks list":          apiMeta("webhooks", []string{"get_webhooks"}, allDataModes()...),
 }
@@ -253,6 +254,7 @@ var commandExamples = map[string]string{
 	"wsectl users groups":           "wsectl users groups --json",
 	"wsectl users list":             "wsectl users list --json",
 	"wsectl users schedule":         "wsectl users schedule --start 01.05.2026 --end 31.05.2026 --json",
+	"wsectl version":                "wsectl version\nwsectl version --json",
 	"wsectl webhooks list":          "wsectl webhooks list --json",
 }
 

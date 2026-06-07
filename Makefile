@@ -1,9 +1,10 @@
 BIN ?= dist/wsectl
 COVERAGE_DIR ?= coverage
 COVERAGE_OUT ?= $(COVERAGE_DIR)/coverage.out
+COVERAGE_MIN ?= 70.0
 GOLANGCI_LINT_CACHE ?= $(CURDIR)/.cache/golangci-lint
 
-.PHONY: check ci tidy tidy-check test race vet fmt fmt-check docs docs-check lint vuln build install coverage coverage-html live-test release-check snapshot clean
+.PHONY: check ci tidy tidy-check test race vet fmt fmt-check docs docs-check lint vuln build install coverage coverage-check coverage-html live-test release-check snapshot clean
 
 check: fmt-check tidy-check vet docs-check test
 
@@ -53,6 +54,10 @@ coverage:
 	mkdir -p $(COVERAGE_DIR)
 	go test -covermode=atomic -coverprofile=$(COVERAGE_OUT) ./...
 	go tool cover -func=$(COVERAGE_OUT)
+
+coverage-check: coverage
+	@total="$$(go tool cover -func=$(COVERAGE_OUT) | awk '/^total:/ {print $$3}' | tr -d '%')"; \
+	awk -v t="$$total" -v m="$(COVERAGE_MIN)" 'BEGIN { if (t+0 < m+0) { printf "coverage %s%% below threshold %s%%\n", t, m; exit 1 } printf "coverage %s%% meets threshold %s%%\n", t, m }'
 
 coverage-html: coverage
 	go tool cover -html=$(COVERAGE_OUT) -o $(COVERAGE_DIR)/index.html

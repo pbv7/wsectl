@@ -90,6 +90,33 @@ func TestPlaintextStoreProducesWarning(t *testing.T) {
 	assertCheck(t, report, "plaintext_store", StatusWarn)
 }
 
+func TestExistingUnusualProfileNameWarnsButDoesNotFail(t *testing.T) {
+	cfg := testConfig("env:")
+	cfg.Profiles["client.acme"] = cfg.Profiles["default"]
+	secret := validSecret()
+	report, err := Run(context.Background(), Options{}, dependenciesFor(cfg, secret))
+	if err != nil || !report.Healthy {
+		t.Fatalf("unusual existing profile name should only warn: report=%#v err=%v", report, err)
+	}
+	assertCheck(t, report, "profile_names", StatusWarn)
+}
+
+func TestKeyringCredentialFailureUsesBackendRemediation(t *testing.T) {
+	cfg := testConfig("keyring:wsectl/default")
+	deps := dependenciesFor(cfg, auth.SecretBundle{})
+	deps.LoadSecret = func(context.Context, auth.SecretRef) (auth.SecretBundle, error) {
+		return auth.SecretBundle{}, errors.New("no available keyring backend")
+	}
+	report, err := Run(context.Background(), Options{}, deps)
+	assertExitCode(t, err, 3)
+	for _, remediation := range report.Remediation {
+		if remediation == disabledKeyringBackendRemediation {
+			return
+		}
+	}
+	t.Fatalf("missing disabled keyring remediation: %#v", report.Remediation)
+}
+
 func TestAPICheckSuccess(t *testing.T) {
 	cfg := testConfig("env:")
 	deps := dependenciesFor(cfg, validSecret())

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const ContractVersion = "2026-06-06.1"
+const ContractVersion = "2026-06-07.1"
 
 type ParamType string
 

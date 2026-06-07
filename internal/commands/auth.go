@@ -61,6 +61,7 @@ func newAuthCommand(s *state) *cobra.Command {
 				if secret.AdminToken == "" {
 					return worksection.UsageError("admin token is required for admin-token login; pass --admin-token, --admin-token-stdin, or set WSECTL_ADMIN_TOKEN")
 				}
+				warnPlaintextSecretWrite(cmd, s, ref)
 				if err := storeLoginSecret(cmd.Context(), store, ref, authType, secret); err != nil {
 					return err
 				}
@@ -129,6 +130,7 @@ func newAuthCommand(s *state) *cobra.Command {
 				exchanged.AccountURL = firstNonEmpty(exchanged.AccountURL, p.AccountURL)
 				secret = exchanged
 			}
+			warnPlaintextSecretWrite(cmd, s, ref)
 			if err := storeLoginSecret(cmd.Context(), store, ref, authType, secret); err != nil {
 				return err
 			}
@@ -226,6 +228,13 @@ func newAuthCommand(s *state) *cobra.Command {
 		},
 	})
 	return cmd
+}
+
+func warnPlaintextSecretWrite(cmd *cobra.Command, s *state, ref auth.SecretRef) {
+	if ref.Scheme != "plaintext" || !shouldWriteHumanNotice(s) {
+		return
+	}
+	_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "wsectl: warning: plaintext secret storage is enabled; use keyring or encrypted-file for persistent credentials.")
 }
 
 func loginWaitContext(parent context.Context, spec string) (context.Context, context.CancelFunc) {

@@ -1728,6 +1728,26 @@ wsectl users schedule --start 01.05.2026 --end 31.05.2026 --json
 
 - Prefer --json or --ndjson for automation.
 
+## `wsectl version`
+
+Print version information
+
+**Usage:** `wsectl version [flags]`
+
+**Category:** `discovery`  
+**Authentication required:** `false`  
+**Read-only:** `true`  
+**Output support:** `true`
+
+**Output modes:** `text`, `json`, `yaml`, `table`, `ndjson`, `raw`
+
+**Examples:**
+
+```bash
+wsectl version
+wsectl version --json
+```
+
 ## `wsectl webhooks`
 
 Read webhooks

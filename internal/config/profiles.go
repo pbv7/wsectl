@@ -4,8 +4,8 @@ import "fmt"
 
 // AddProfile adds or replaces a named profile and fills safe defaults.
 func AddProfile(cfg *Config, name string, p Profile) error {
-	if name == "" {
-		return fmt.Errorf("profile name is required")
+	if err := ValidateNewProfileName(name); err != nil {
+		return err
 	}
 	if p.AccountURL == "" {
 		return fmt.Errorf("account_url is required")
@@ -28,6 +28,22 @@ func AddProfile(cfg *Config, name string, p Profile) error {
 	cfg.Profiles[name] = p
 	if cfg.CurrentProfile == "" {
 		cfg.CurrentProfile = name
+	}
+	return nil
+}
+
+// ValidateNewProfileName validates names accepted by mutating profile commands.
+// Existing config files are not rejected only because a legacy name is unusual;
+// doctor reports those as warnings instead.
+func ValidateNewProfileName(name string) error {
+	if name == "" {
+		return fmt.Errorf("profile name is required")
+	}
+	for _, r := range name {
+		if r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-' {
+			continue
+		}
+		return fmt.Errorf("profile name %q must contain only letters, numbers, underscores, and hyphens", name)
 	}
 	return nil
 }

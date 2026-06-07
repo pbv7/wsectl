@@ -135,6 +135,7 @@ func TestCommandsMetadataCoverage(t *testing.T) {
 		"wsectl api schema",
 		"wsectl auth login",
 		"wsectl auth status",
+		"wsectl version",
 	} {
 		if info, ok := byPath[path]; !ok {
 			t.Errorf("missing %s", path)
@@ -151,6 +152,37 @@ func TestCommandsMetadataCoverage(t *testing.T) {
 		if info := byPath[path]; len(info.Actions) != 1 || info.Actions[0] != action {
 			t.Errorf("%s action mapping = %v, want %s", path, info.Actions, action)
 		}
+	}
+}
+
+func TestVersionCommand(t *testing.T) {
+	text, err := execute("version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "wsectl test\n" {
+		t.Fatalf("version text = %q", text)
+	}
+	out, err := execute("version", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env struct {
+		Status string `json:"status"`
+		Data   struct {
+			Version   string `json:"version"`
+			Commit    string `json:"commit"`
+			Date      string `json:"date"`
+			GoVersion string `json:"go_version"`
+			OS        string `json:"os"`
+			Arch      string `json:"arch"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("invalid version json: %v\n%s", err, out)
+	}
+	if env.Status != "ok" || env.Data.Version != "test" || env.Data.Commit != "commit" || env.Data.Date != "date" || env.Data.GoVersion == "" || env.Data.OS == "" || env.Data.Arch == "" {
+		t.Fatalf("unexpected version envelope %#v", env)
 	}
 }
 
@@ -174,6 +206,16 @@ func TestCommandsJSONPreservesAndExtendsContract(t *testing.T) {
 		}
 	}
 	t.Fatal("commands output missing wsectl tasks search")
+}
+
+func TestAPICallRejectsDuplicateParams(t *testing.T) {
+	out, err := execute("api", "call", "get_users", "--param", "id=1", "--param", "id=2", "--json")
+	if err == nil {
+		t.Fatal("expected duplicate param usage error")
+	}
+	if !strings.Contains(out, `"status": "error"`) || !strings.Contains(out, "provided more than once") {
+		t.Fatalf("unexpected duplicate-param output:\n%s", out)
+	}
 }
 
 func TestCommandSchemaDoesNotRequireCredentials(t *testing.T) {
@@ -505,6 +547,32 @@ func TestAuthLoginAdminTokenStdinStoresSecretWithoutPrintingIt(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "admin-secret-from-stdin") {
 		t.Fatalf("stdin secret was not stored: %s", raw)
+	}
+}
+
+func TestAuthLoginPlaintextWarnsOnlyInHumanOutput(t *testing.T) {
+	writePlaintextProfileConfig(t, "oauth2")
+	out, err := execute("auth", "login", "--access-token", "access")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "warning: plaintext secret storage is enabled") {
+		t.Fatalf("expected plaintext warning in human output:\n%s", out)
+	}
+
+	writePlaintextProfileConfig(t, "oauth2")
+	out, err = execute("auth", "login", "--access-token", "access", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "plaintext secret storage") {
+		t.Fatalf("plaintext warning contaminated machine output:\n%s", out)
+	}
+	var env struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil || env.Status != "ok" {
+		t.Fatalf("invalid machine output err=%v out=%s", err, out)
 	}
 }
 

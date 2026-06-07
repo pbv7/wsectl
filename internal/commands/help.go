@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pbv7/wsectl/internal/docs"
+	"github.com/pbv7/wsectl/docs"
 	"github.com/pbv7/wsectl/internal/output"
 	"github.com/spf13/cobra"
 )

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pbv7/wsectl/internal/atomicfile"
 	"github.com/spf13/viper"
 )
 
@@ -210,7 +211,7 @@ func Save(cfg Config) error {
 		fmt.Fprintf(&b, "[profiles.%s]\naccount_url = %q\nauth_type = %q\nsecret_ref = %q\n\n",
 			name, p.AccountURL, p.AuthType, p.SecretRef)
 	}
-	return atomicWriteFile(cfg.Path, []byte(b.String()), 0o600)
+	return atomicfile.WriteFile(cfg.Path, []byte(b.String()), 0o600)
 }
 
 func ValidateAccountURL(raw string) error {
@@ -243,40 +244,6 @@ func ValidateSecretRef(ref string) error {
 	default:
 		return fmt.Errorf("unsupported secret store %q", scheme)
 	}
-}
-
-func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".wsectl-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return err
-	}
-	cleanup = false
-	return nil
 }
 
 func firstNonEmpty(values ...string) string {

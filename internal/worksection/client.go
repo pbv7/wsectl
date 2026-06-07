@@ -138,6 +138,9 @@ func (c *Client) downloadFromJSON(ctx context.Context, resp *Response, headers h
 	if downloadURL == "" {
 		return nil, &Error{Code: CodeAPI, Message: "download response did not include a URL"}
 	}
+	if err := c.validateDownloadURL(downloadURL); err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return nil, &Error{Code: CodeNetwork, Message: err.Error()}
@@ -158,6 +161,60 @@ func (c *Client) downloadFromJSON(ctx context.Context, resp *Response, headers h
 		contentType = headers.Get("Content-Type")
 	}
 	return &DownloadResponse{FileName: name, ContentType: contentType, Body: downloaded.Body}, nil
+}
+
+func (c *Client) validateDownloadURL(downloadURL string) error {
+	parsed, err := url.Parse(downloadURL)
+	if err != nil || parsed.Host == "" {
+		return &Error{Code: CodeAPI, Message: "download response included an invalid URL", Details: map[string]any{"reason": "download_invalid_url"}}
+	}
+	account, err := url.Parse(c.accountURL)
+	if err != nil || account.Host == "" {
+		return &Error{Code: CodeUsage, Message: "account URL is required"}
+	}
+	expectedHost := normalizeHTTPSHost(account)
+	actualHost := normalizeHTTPSHost(parsed)
+	if parsed.Scheme != "https" {
+		return &Error{
+			Code:    CodeUsage,
+			Message: "download URL is not HTTPS; wsectl will not forward credentials to insecure file URLs",
+			Details: map[string]any{
+				"reason":        "download_insecure_url",
+				"expected_host": expectedHost,
+				"actual_host":   actualHost,
+				"url_scheme":    parsed.Scheme,
+			},
+		}
+	}
+	if actualHost != expectedHost {
+		return &Error{
+			Code:    CodeUsage,
+			Message: "download URL host differs from the configured Worksection account; wsectl blocked credential forwarding",
+			Details: map[string]any{
+				"reason":        "download_host_mismatch",
+				"expected_host": expectedHost,
+				"actual_host":   actualHost,
+				"url_scheme":    parsed.Scheme,
+			},
+		}
+	}
+	return nil
+}
+
+func normalizeHTTPSHost(u *url.URL) string {
+	host := strings.TrimSuffix(strings.ToLower(u.Host), ".")
+	hostname := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	port := u.Port()
+	if port == "" || port == "443" {
+		return hostname
+	}
+	if hostname == "" {
+		return host
+	}
+	if strings.Contains(hostname, ":") {
+		return "[" + hostname + "]:" + port
+	}
+	return hostname + ":" + port
 }
 
 func (c *Client) apiRequest(ctx context.Context, action string, params map[string]string) (*http.Request, error) {
@@ -206,7 +263,11 @@ func (c *Client) doReadResponse(req *http.Request) (*rawHTTPResponse, error) {
 				return nil, &Error{Code: CodeNetwork, Message: err.Error()}
 			}
 		}
-		resp, err := c.httpClient.Do(req)
+		attemptReq, err := requestForAttempt(req)
+		if err != nil {
+			return nil, &Error{Code: CodeNetwork, Message: err.Error()}
+		}
+		resp, err := c.httpClient.Do(attemptReq)
 		if err != nil {
 			return nil, &Error{Code: CodeNetwork, Message: redact(err.Error())}
 		}
@@ -266,11 +327,24 @@ func statusCode(status int) ErrorCode {
 	case http.StatusTooManyRequests:
 		return CodeRateLimited
 	default:
-		if status >= 500 {
-			return CodeAPI
-		}
 		return CodeAPI
 	}
+}
+
+func requestForAttempt(req *http.Request) (*http.Request, error) {
+	cloned := req.Clone(req.Context())
+	if req.Body == nil {
+		return cloned, nil
+	}
+	if req.GetBody == nil {
+		return nil, fmt.Errorf("request body cannot be replayed for retryable Worksection reads")
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return nil, err
+	}
+	cloned.Body = body
+	return cloned, nil
 }
 
 func parseRetryAfter(value string, now time.Time) (time.Duration, error) {
@@ -360,13 +434,21 @@ func jsonErrorMessage(raw json.RawMessage) string {
 func redact(s string) string {
 	replacers := []string{"access_token=", "refresh_token=", "Authorization: Bearer "}
 	for _, marker := range replacers {
-		if idx := strings.Index(s, marker); idx >= 0 {
+		start := 0
+		for {
+			idxRel := strings.Index(s[start:], marker)
+			if idxRel < 0 {
+				break
+			}
+			idx := start + idxRel
 			end := strings.IndexAny(s[idx+len(marker):], "& \n\r\t")
 			if end < 0 {
-				return s[:idx+len(marker)] + "[REDACTED]"
+				s = s[:idx+len(marker)] + "[REDACTED]"
+				break
 			}
 			pos := idx + len(marker) + end
-			return s[:idx+len(marker)] + "[REDACTED]" + s[pos:]
+			s = s[:idx+len(marker)] + "[REDACTED]" + s[pos:]
+			start = idx + len(marker) + len("[REDACTED]")
 		}
 	}
 	return s

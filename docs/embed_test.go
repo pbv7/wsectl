@@ -7,33 +7,42 @@ import (
 	"testing"
 )
 
-func TestEmbeddedDocsMirrorCanonicalRepoDocs(t *testing.T) {
+func TestRuntimeDocsAreEmbedded(t *testing.T) {
 	for _, name := range []string{
+		"manual.md",
 		"agent-usage.md",
 		"auth.md",
-		"completion.md",
 		"configuration.md",
-		"doctor.md",
-		"manual.md",
 		"output-contracts.md",
+		"completion.md",
+		"doctor.md",
+		"examples.md",
+		"env.md",
+		"limits.md",
 	} {
-		embedded := strings.TrimSpace(Read(name))
-		if embedded == "" {
+		if strings.TrimSpace(Read(name)) == "" {
 			t.Fatalf("%s is not embedded", name)
 		}
-		repoRaw, err := os.ReadFile(filepath.Join("..", "..", "docs", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if embedded != strings.TrimSpace(string(repoRaw)) {
-			t.Fatalf("%s embedded doc differs from docs/%s", name, name)
+	}
+}
+
+func TestNonRuntimeDocsAreNotEmbedded(t *testing.T) {
+	for _, name := range []string{
+		"command-reference.md",
+		"release.md",
+		"security.md",
+		"recipes.md",
+		"api-coverage.md",
+	} {
+		if Read(name) != "" {
+			t.Fatalf("%s should not be embedded in runtime help", name)
 		}
 	}
 }
 
 func TestDocsDoNotAdvertiseStaleColorOrLiteralSecretExamples(t *testing.T) {
-	projectRoot := filepath.Join("..", "..")
-	for _, rel := range []string{"README.md", "docs", "internal/docs", "testdata/golden"} {
+	projectRoot := filepath.Join("..")
+	for _, rel := range []string{"README.md", "docs", "testdata/golden"} {
 		path := filepath.Join(projectRoot, rel)
 		if err := filepath.WalkDir(path, func(name string, entry os.DirEntry, err error) error {
 			if err != nil {

@@ -13,10 +13,21 @@ type KeyringStore struct{}
 func NewKeyringStore() KeyringStore { return KeyringStore{} }
 
 func (KeyringStore) ring() (keyring.Keyring, error) {
-	return keyring.Open(keyring.Config{
+	return keyring.Open(keyringConfig())
+}
+
+func keyringConfig() keyring.Config {
+	return keyring.Config{
 		ServiceName:              "wsectl",
 		KeychainTrustApplication: true,
-	})
+		AllowedBackends: []keyring.BackendType{
+			keyring.KeychainBackend,
+			keyring.WinCredBackend,
+			keyring.SecretServiceBackend,
+			keyring.KWalletBackend,
+			keyring.PassBackend,
+		},
+	}
 }
 
 func (s KeyringStore) Get(_ context.Context, ref SecretRef) (SecretBundle, error) {

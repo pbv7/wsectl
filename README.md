@@ -221,7 +221,7 @@ Do not parse table output in scripts. Table output is for humans and may change 
     "action": "get_tasks",
     "profile": "default",
     "account_url": "https://company.worksection.com",
-    "contract_version": "2026-06-06.1",
+    "contract_version": "2026-06-07.1",
     "response_shape": "array",
     "count": 0,
     "truncated": false,
@@ -238,12 +238,14 @@ Always check `meta.truncated` and `meta.warnings` for large responses.
 
 Secrets are accessed through a `SecretStore` abstraction:
 
-- `keyring`: default OS keychain backend.
+- `keyring`: default OS keychain backend. `wsectl` enables OS-backed keychains and Pass, and intentionally disables the 99designs File and KeyCtl backends.
 - `env`: read-only backend for CI and containers.
 - `encrypted-file`: explicit portable fallback protected by `WSECTL_SECRET_PASSPHRASE` with versioned Argon2id/AES-GCM payloads.
 - `plaintext`: explicit opt-in only.
 
 Commands do not print tokens by default. Use environment credentials for ephemeral automation and OS keychain storage for interactive use.
+
+File downloads only forward bearer credentials to HTTPS URLs on the configured Worksection account host. If Worksection returns a cross-host file URL, `wsectl` fails closed with a structured `download_host_mismatch` error instead of leaking credentials.
 
 ## Worksection API Limits
 
@@ -323,11 +325,14 @@ wsectl completion powershell > wsectl.ps1
 make check
 make ci
 make coverage
+make coverage-check
 make coverage-html
 make build
 make docs
 make clean
 ```
+
+`make coverage-check` uses POSIX shell tools and is intended for Unix-like developer environments. Windows CI runs direct Go commands for cross-platform coverage of the source.
 
 Optional live smoke tests are disabled by default:
 

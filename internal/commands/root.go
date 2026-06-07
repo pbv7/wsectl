@@ -66,6 +66,7 @@ func NewRoot(version, commit, date string) *cobra.Command {
 	root.AddCommand(newDocsCommand(s))
 	root.AddCommand(newDoctorCommand(s))
 	root.AddCommand(newCompletionCommand())
+	root.AddCommand(newVersionCommand(s))
 	root.AddCommand(newReadCommands(s)...)
 	if err := applyCommandMetadata(root); err != nil {
 		panic(err)
@@ -163,7 +164,14 @@ func (s *state) client(ctx context.Context) (*worksection.Client, string, config
 	secret, err := store.Get(ctx, ref)
 	if err != nil && ref.Scheme != "env" {
 		if envStore, envErr := auth.StoreFor(auth.SecretRef{Scheme: "env", Name: ""}); envErr == nil {
-			secret, err = envStore.Get(ctx, auth.SecretRef{Scheme: "env", Name: ""})
+			envRef := auth.SecretRef{Scheme: "env", Name: ""}
+			envSecret, envGetErr := envStore.Get(ctx, envRef)
+			if envGetErr == nil && envSecretUsable(firstNonEmpty(p.AuthType, "oauth2"), envSecret) {
+				secret = envSecret
+				store = envStore
+				ref = envRef
+				err = nil
+			}
 		}
 	}
 	if err != nil {
@@ -192,6 +200,13 @@ func (s *state) client(ctx context.Context) (*worksection.Client, string, config
 		return nil, profileName, p, err
 	}
 	return worksection.NewClient(nil, creds, cfg.Timeout(), limiter), profileName, p, nil
+}
+
+func envSecretUsable(authType string, secret auth.SecretBundle) bool {
+	if authType == "admin_token" {
+		return secret.AdminToken != ""
+	}
+	return secret.AccessToken != ""
 }
 
 func (s *state) runAction(cmd *cobra.Command, action string, params map[string]string) error {
@@ -413,6 +428,9 @@ func paramsFromPairs(pairs []string) (map[string]string, error) {
 		k, v, ok := strings.Cut(pair, "=")
 		if !ok || k == "" {
 			return nil, worksection.UsageError("--param must be key=value")
+		}
+		if _, exists := params[k]; exists {
+			return nil, worksection.UsageError("--param %q was provided more than once", k)
 		}
 		params[k] = v
 	}

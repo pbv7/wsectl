@@ -25,7 +25,7 @@ JSON is the stable interface for scripts and agents. Table output is optimized f
     "action": "get_tasks",
     "profile": "default",
     "account_url": "https://company.worksection.com",
-    "contract_version": "2026-06-06.1",
+    "contract_version": "2026-06-07.1",
     "response_shape": "array",
     "count": 0,
     "truncated": false,

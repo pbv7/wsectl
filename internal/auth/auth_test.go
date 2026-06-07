@@ -75,6 +75,24 @@ func TestHTTPClientWithTimeout(t *testing.T) {
 	}
 }
 
+func TestKeyringConfigRestrictsBackends(t *testing.T) {
+	cfg := keyringConfig()
+	got := map[string]bool{}
+	for _, backend := range cfg.AllowedBackends {
+		got[string(backend)] = true
+	}
+	for _, want := range []string{"keychain", "wincred", "secret-service", "kwallet", "pass"} {
+		if !got[want] {
+			t.Fatalf("allowed backends missing %s: %#v", want, cfg.AllowedBackends)
+		}
+	}
+	for _, forbidden := range []string{"file", "keyctl"} {
+		if got[forbidden] {
+			t.Fatalf("forbidden backend %s is allowed: %#v", forbidden, cfg.AllowedBackends)
+		}
+	}
+}
+
 func TestRefresh(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if err := r.ParseForm(); err != nil {
@@ -95,6 +113,51 @@ func TestRefresh(t *testing.T) {
 	}
 	if got.AccessToken != "new-access" || got.RefreshToken != "new-refresh" || got.AccountURL == "" {
 		t.Fatalf("unexpected bundle %#v", got)
+	}
+}
+
+func TestRefreshRetriesTransientFailures(t *testing.T) {
+	calls := 0
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return &http.Response{
+				StatusCode: http.StatusTooManyRequests,
+				Header:     http.Header{"Retry-After": []string{"0"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":"rate_limited"}`)),
+			}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh","expires_in":86400}`)),
+		}, nil
+	})}
+	got, err := Refresh(context.Background(), client, SecretBundle{ClientID: "id", ClientSecret: "secret", RefreshToken: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || got.AccessToken != "new-access" || got.RefreshToken != "new-refresh" {
+		t.Fatalf("unexpected retry result calls=%d bundle=%#v", calls, got)
+	}
+}
+
+func TestRefreshDoesNotRetryTerminalOAuthFailure(t *testing.T) {
+	calls := 0
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{
+			StatusCode: http.StatusUnauthorized,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":"invalid_grant"}`)),
+		}, nil
+	})}
+	_, err := Refresh(context.Background(), client, SecretBundle{ClientID: "id", ClientSecret: "secret", RefreshToken: "old"})
+	if err == nil {
+		t.Fatal("expected refresh error")
+	}
+	if calls != 1 {
+		t.Fatalf("terminal OAuth failure was retried %d times", calls)
 	}
 }
 

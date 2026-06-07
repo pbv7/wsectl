@@ -44,6 +44,22 @@ func TestProfileSaveLoad(t *testing.T) {
 	}
 }
 
+func TestAddProfileRejectsUnsafeNewProfileName(t *testing.T) {
+	cfg := Builtin()
+	err := AddProfile(&cfg, "client.acme", Profile{AccountURL: "https://company.worksection.com", AuthType: "oauth2"})
+	if err == nil || !strings.Contains(err.Error(), "letters, numbers, underscores, and hyphens") {
+		t.Fatalf("expected profile name validation error, got %v", err)
+	}
+}
+
+func TestValidateAllowsExistingUnusualProfileName(t *testing.T) {
+	cfg := Builtin()
+	cfg.Profiles["client.acme"] = Profile{AccountURL: "https://company.worksection.com", AuthType: "oauth2", SecretRef: "keyring:wsectl/client.acme"}
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("existing unusual profile names should not fail config load: %v", err)
+	}
+}
+
 func TestSaveSortsProfiles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	cfg := Builtin()

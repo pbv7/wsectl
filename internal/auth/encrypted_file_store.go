@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/pbv7/wsectl/internal/atomicfile"
 	"golang.org/x/crypto/argon2"
 )
 
@@ -94,7 +95,7 @@ func (EncryptedFileStore) Set(_ context.Context, ref SecretRef, value SecretBund
 	if err := os.MkdirAll(filepath.Dir(ref.Name), 0o700); err != nil {
 		return err
 	}
-	return atomicWriteFile(ref.Name, raw, 0o600)
+	return atomicfile.WriteFile(ref.Name, raw, 0o600)
 }
 
 func (EncryptedFileStore) Delete(_ context.Context, ref SecretRef) error {
@@ -109,7 +110,7 @@ func (EncryptedFileStore) CheckWritable(_ context.Context, ref SecretRef) error 
 		return err
 	}
 	probe := filepath.Join(filepath.Dir(ref.Name), ".wsectl-write-check")
-	if err := atomicWriteFile(probe, []byte("ok"), 0o600); err != nil {
+	if err := atomicfile.WriteFile(probe, []byte("ok"), 0o600); err != nil {
 		return err
 	}
 	return os.Remove(probe)

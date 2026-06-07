@@ -132,5 +132,6 @@ Command catalog:
   wsectl users groups            List user groups
   wsectl users list              List users
   wsectl users schedule          List users' non-working days
+  wsectl version                 Print version information
   wsectl webhooks                Read webhooks
   wsectl webhooks list           List webhooks

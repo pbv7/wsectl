@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/pbv7/wsectl/internal/atomicfile"
 )
 
 type PlaintextStore struct{}
@@ -26,7 +28,7 @@ func (PlaintextStore) Set(_ context.Context, ref SecretRef, value SecretBundle) 
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(ref.Name, raw, 0o600)
+	return atomicfile.WriteFile(ref.Name, raw, 0o600)
 }
 
 func (PlaintextStore) Delete(_ context.Context, ref SecretRef) error {
@@ -38,7 +40,7 @@ func (PlaintextStore) CheckWritable(_ context.Context, ref SecretRef) error {
 		return err
 	}
 	probe := filepath.Join(filepath.Dir(ref.Name), ".wsectl-write-check")
-	if err := atomicWriteFile(probe, []byte("ok"), 0o600); err != nil {
+	if err := atomicfile.WriteFile(probe, []byte("ok"), 0o600); err != nil {
 		return err
 	}
 	return os.Remove(probe)

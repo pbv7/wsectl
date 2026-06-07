@@ -28,6 +28,8 @@ const (
 	StatusFail Status = "fail"
 )
 
+const disabledKeyringBackendRemediation = "The selected keyring backend is not enabled by wsectl. Re-run auth login with a supported OS keychain backend, or explicitly migrate the profile to encrypted-file:PATH and log in again. File and KeyCtl keyring backends are intentionally disabled."
+
 // Check is one actionable doctor diagnostic.
 type Check struct {
 	Name        string `json:"name"`
@@ -97,6 +99,7 @@ func Run(ctx context.Context, opts Options, deps Dependencies) (Report, error) {
 	} else {
 		add(&report, StatusOK, "config_validation", "configuration values are valid", "")
 	}
+	checkProfileNames(&report, cfg)
 	if _, err := worksection.NewLimiter(cfg.RateLimit()); err != nil {
 		add(&report, StatusFail, "rate_limit", err.Error(), "Set rate_limit to a value such as 1/s.")
 	} else {
@@ -143,14 +146,18 @@ func Run(ctx context.Context, opts Options, deps Dependencies) (Report, error) {
 		add(&report, StatusWarn, "plaintext_store", "plaintext secret storage is enabled", "Use keyring or encrypted-file storage for persistent credentials.")
 	}
 	if _, err := auth.StoreFor(ref); err != nil {
-		add(&report, StatusFail, "secret_backend", err.Error(), "Use a supported secret store: keyring, env, encrypted-file, or plaintext.")
+		remediation := "Use a supported secret store: keyring, env, encrypted-file, or plaintext."
+		if ref.Scheme == "keyring" {
+			remediation = disabledKeyringBackendRemediation
+		}
+		add(&report, StatusFail, "secret_backend", err.Error(), remediation)
 		return finalize(report, worksection.CodeUsage)
 	}
 	add(&report, StatusOK, "secret_backend", ref.Scheme+" backend is supported", "")
 
 	secret, err := deps.LoadSecret(ctx, ref)
 	if err != nil {
-		add(&report, StatusFail, "credentials", "credentials are unavailable from the "+ref.Scheme+" backend", "Run `wsectl auth login` or provide WSECTL_* credential variables.")
+		add(&report, StatusFail, "credentials", "credentials are unavailable from the "+ref.Scheme+" backend", credentialRemediation(ref, authType))
 		return finalize(report, worksection.CodeAuth)
 	}
 	if err := validateCredentials(authType, secret); err != nil {
@@ -176,6 +183,30 @@ func Run(ctx context.Context, opts Options, deps Dependencies) (Report, error) {
 		add(&report, StatusOK, "api", "authenticated `me` request succeeded", "")
 	}
 	return finalize(report, worksection.CodeGeneral)
+}
+
+func credentialRemediation(ref auth.SecretRef, authType string) string {
+	if ref.Scheme == "keyring" {
+		return disabledKeyringBackendRemediation
+	}
+	if authType == "admin_token" {
+		return "Run `wsectl auth login` or provide WSECTL_ADMIN_TOKEN."
+	}
+	return "Run `wsectl auth login` or provide WSECTL_ACCESS_TOKEN."
+}
+
+func checkProfileNames(report *Report, cfg config.Config) {
+	var invalid []string
+	for name := range cfg.Profiles {
+		if err := config.ValidateNewProfileName(name); err != nil {
+			invalid = append(invalid, name)
+		}
+	}
+	if len(invalid) == 0 {
+		return
+	}
+	sort.Strings(invalid)
+	add(report, StatusWarn, "profile_names", "some existing profile names contain characters not accepted by `profiles add`: "+strings.Join(invalid, ", "), "Create a replacement profile with `wsectl profiles add NAME ...` and remove the legacy profile when it is no longer needed.")
 }
 
 func withDefaults(deps Dependencies) Dependencies {

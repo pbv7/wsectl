@@ -16,6 +16,16 @@ make release-check
 
 Run optional live smoke tests with real read-only credentials before the first public release.
 
+`make coverage-check` is a POSIX-shell Makefile target with `COVERAGE_MIN ?= 70.0`. Keep it as a visibility gate until coverage is intentionally raised above the threshold; Windows release validation should use the direct Go test commands from CI.
+
+Before tagging, also run one real file download probe against a safe task attachment:
+
+```bash
+wsectl files download FILE_ID --out /tmp/wsectl-probe.bin
+```
+
+The probe passes when the output file is non-empty, filename or content type looks correct, and no blocked-host error is returned.
+
 ## Snapshot Build
 
 After the repository is initialized with Git, validate local release artifacts:

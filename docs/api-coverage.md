@@ -75,7 +75,7 @@ Schemas are static, advisory contracts compiled into the binary. They include do
 - `get_costs` and `get_costs_total`: public `--timer` maps to API `is_timer`. Their static response contracts are composite because Worksection can return top-level `total`, `projects`, or task aggregate objects alongside `data`.
 - `get_files`: callers must specify exactly one selector, `id_project` or `id_task`.
 - `files images`: image filtering is client-side because the Postman/live contract does not document a server-side image filter.
-- `download`: responses may be JSON URL objects, redirects, or direct binary content.
+- `download`: responses may be JSON URL objects, redirects, or direct binary content. Bearer credentials are forwarded only to HTTPS URLs on the configured Worksection account host; cross-host or insecure URLs return structured blocked-download errors.
 - `get_webhooks`: access may require an administrative token or explicit administrative OAuth scope depending on the Worksection app settings. Current docs show `events`, `status`, and optional `projects` fields.
 - `get_users_schedule`: docs show `data` as an object keyed by user with nested `schedule`, not a flat list of dates.
 - `get_timers` and `get_my_timer`: docs use `date_started`, `user_from`, and nested `task` fields. `get_my_timer` can vary when no timer is active.

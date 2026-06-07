@@ -1,11 +1,13 @@
-package auth
+package atomicfile
 
 import (
 	"os"
 	"path/filepath"
 )
 
-func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+// WriteFile writes data to path through a same-directory temporary file and
+// atomic rename.
+func WriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
