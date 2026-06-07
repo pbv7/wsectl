@@ -31,6 +31,6 @@ var WsectlEnvVars = []string{
 // Tests that need a specific value should use t.Setenv, which auto-restores.
 func UnsetWsectlEnv() {
 	for _, name := range WsectlEnvVars {
-		os.Unsetenv(name)
+		_ = os.Unsetenv(name)
 	}
 }
