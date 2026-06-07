@@ -7,7 +7,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pbv7/wsectl/internal/testutil"
 )
+
+func TestMain(m *testing.M) {
+	testutil.UnsetWsectlEnv()
+	os.Exit(m.Run())
+}
 
 func TestLoadEnvOverrides(t *testing.T) {
 	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))

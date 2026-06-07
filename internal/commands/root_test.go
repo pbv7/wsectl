@@ -17,9 +17,15 @@ import (
 	"github.com/pbv7/wsectl/internal/auth"
 	"github.com/pbv7/wsectl/internal/doctor"
 	"github.com/pbv7/wsectl/internal/history"
+	"github.com/pbv7/wsectl/internal/testutil"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
+
+func TestMain(m *testing.M) {
+	testutil.UnsetWsectlEnv()
+	os.Exit(m.Run())
+}
 
 func execute(args ...string) (string, error) {
 	return executeWithInput("", args...)

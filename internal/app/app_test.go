@@ -2,11 +2,18 @@ package app
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/pbv7/wsectl/internal/testutil"
 	"github.com/pbv7/wsectl/internal/worksection"
 )
+
+func TestMain(m *testing.M) {
+	testutil.UnsetWsectlEnv()
+	os.Exit(m.Run())
+}
 
 func TestMachineFormatDetection(t *testing.T) {
 	t.Setenv("WSECTL_OUTPUT", "")

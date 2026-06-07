@@ -9,8 +9,14 @@ import (
 
 	"github.com/pbv7/wsectl/internal/auth"
 	"github.com/pbv7/wsectl/internal/config"
+	"github.com/pbv7/wsectl/internal/testutil"
 	"github.com/pbv7/wsectl/internal/worksection"
 )
+
+func TestMain(m *testing.M) {
+	testutil.UnsetWsectlEnv()
+	os.Exit(m.Run())
+}
 
 func TestMissingConfigWithEnvironmentCredentialsIsHealthy(t *testing.T) {
 	t.Setenv("WSECTL_ACCOUNT_URL", "https://company.worksection.com")
