@@ -31,6 +31,7 @@ jobs:
       - run: make check
       - run: make lint-md
       - run: make lint-workflows
+      - run: npm audit --audit-level=high
       - run: make coverage-check
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6

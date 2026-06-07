@@ -365,6 +365,9 @@ make clean
 `make build` and `make install` inject version, commit, and build date into `wsectl version`. `make build-all` creates local Linux, macOS, and
 Windows development binaries under `dist/`; release archives are still produced by GoReleaser.
 
+Development-only lint tools are tracked in package-manager manifests: `actionlint` is declared as a Go tool in `go.mod`, and `markdownlint-cli2` is
+declared in `package-lock.json` for reproducible Markdown linting.
+
 `make coverage-check` uses POSIX shell tools and is intended for Unix-like developer environments. Windows CI runs direct Go commands for
 cross-platform coverage of the source.
 

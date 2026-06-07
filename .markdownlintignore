@@ -1,2 +1,7 @@
 LICENSE
 LICENSE.txt
+node_modules/
+dist/
+coverage/
+.cache/
+.tmp/

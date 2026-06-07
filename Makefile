@@ -10,8 +10,7 @@ COVERAGE_DIR ?= coverage
 COVERAGE_OUT ?= $(COVERAGE_DIR)/coverage.out
 COVERAGE_MIN ?= 70.0
 GOLANGCI_LINT_CACHE ?= $(CURDIR)/.cache/golangci-lint
-MARKDOWNLINT_CLI2_VERSION ?= 0.22.1
-ACTIONLINT_VERSION ?= v1.7.8
+NODE_MODULES_LOCK ?= node_modules/.package-lock.json
 
 .PHONY: check ci tidy tidy-check deps test race vet fmt fmt-check docs docs-check lint lint-md lint-workflows lint-all vuln build build-linux build-darwin build-windows build-all run install version coverage coverage-check coverage-html live-test release release-check snapshot release-snapshot clean
 
@@ -28,6 +27,7 @@ tidy-check:
 deps:
 	go mod download
 	go mod tidy
+	npm ci
 
 fmt:
 	gofmt -w cmd internal
@@ -85,16 +85,20 @@ docs-check:
 lint:
 	GOLANGCI_LINT_CACHE=$(GOLANGCI_LINT_CACHE) golangci-lint run
 
-lint-md:
-	npx --yes markdownlint-cli2@$(MARKDOWNLINT_CLI2_VERSION) "README.md" "CONTRIBUTING.md" "docs/**/*.md"
+$(NODE_MODULES_LOCK): package.json package-lock.json
+	npm ci
+
+lint-md: $(NODE_MODULES_LOCK)
+	npm run --silent lint:md
 
 lint-workflows:
-	go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) .github/workflows/*.yml
+	go tool actionlint .github/workflows/*.yml
 
 lint-all: lint lint-workflows lint-md
 
 vuln:
 	govulncheck ./...
+	npm audit --audit-level=high
 
 coverage:
 	mkdir -p $(COVERAGE_DIR)
@@ -123,4 +127,4 @@ release:
 	goreleaser release --clean
 
 clean:
-	rm -rf dist $(COVERAGE_DIR) .cache .tmp
+	rm -rf dist $(COVERAGE_DIR) .cache .tmp node_modules

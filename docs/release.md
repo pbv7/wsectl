@@ -14,8 +14,9 @@ make vuln
 make release-check
 ```
 
-`make lint-all` runs Go linting, Markdown linting, and GitHub Actions workflow linting. Markdown prose is kept under 150 characters per line while
-code blocks, headings, and tables are exempt from the line-length rule.
+`make lint-all` runs Go linting, Markdown linting, and GitHub Actions workflow linting. Markdownlint is managed through `package-lock.json`, and
+actionlint is managed through Go's `tool` directive. Markdown prose uses the configured line-length rule while code blocks, headings, and tables are
+exempt from that rule.
 
 Run optional live smoke tests with real read-only credentials before the first public release.
 

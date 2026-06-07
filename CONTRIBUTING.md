@@ -28,8 +28,11 @@ make release-check
 `no go files to analyze`, even though `go test` and `go list` succeed. Tests are still compiled and run by `make check` and `make race`; re-enable
 golangci-lint test-file linting after the toolchain issue is resolved.
 
-`make lint-md` uses markdownlint-cli2 with a 150-character prose line limit. The rule is relaxed for code blocks, headings, and tables, but prose
-warnings are fixed instead of disabled. `make lint-workflows` runs actionlint against GitHub Actions workflow files.
+`make lint-md` uses the lockfile-managed `markdownlint-cli2` npm dev dependency with the prose line limit from `.markdownlint.json`. The rule is
+relaxed for code blocks, headings, and tables, but prose warnings are fixed instead of disabled. `make lint-workflows` runs the `actionlint` Go tool
+declared in `go.mod` against GitHub Actions workflow files.
+
+`make vuln` runs `govulncheck` for Go packages and `npm audit --audit-level=high` for the Markdown lint toolchain.
 
 ## Documentation
 
