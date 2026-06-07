@@ -144,22 +144,29 @@ func (s *state) configOverrides() config.Overrides {
 	}
 }
 
-func (s *state) client(ctx context.Context) (*worksection.Client, string, config.Profile, bool, error) {
+type clientResult struct {
+	client          *worksection.Client
+	profileName     string
+	profile         config.Profile
+	usedEnvFallback bool
+}
+
+func (s *state) client(ctx context.Context) (clientResult, error) {
 	cfg, err := s.loadConfig(ctx)
 	if err != nil {
-		return nil, "", config.Profile{}, false, err
+		return clientResult{}, err
 	}
 	profileName, p, err := cfg.ActiveProfile()
 	if err != nil {
-		return nil, profileName, p, false, &worksection.Error{Code: worksection.CodeUsage, Message: err.Error()}
+		return clientResult{profileName: profileName, profile: p}, &worksection.Error{Code: worksection.CodeUsage, Message: err.Error()}
 	}
 	ref, err := auth.ParseRef(p.SecretRef)
 	if err != nil {
-		return nil, profileName, p, false, err
+		return clientResult{profileName: profileName, profile: p}, err
 	}
 	store, err := auth.StoreFor(ref)
 	if err != nil {
-		return nil, profileName, p, false, err
+		return clientResult{profileName: profileName, profile: p}, err
 	}
 	usedEnvFallback := false
 	secret, err := store.Get(ctx, ref)
@@ -177,17 +184,17 @@ func (s *state) client(ctx context.Context) (*worksection.Client, string, config
 		}
 	}
 	if err != nil {
-		return nil, profileName, p, false, &worksection.Error{Code: worksection.CodeAuth, Message: err.Error()}
+		return clientResult{profileName: profileName, profile: p}, &worksection.Error{Code: worksection.CodeAuth, Message: err.Error()}
 	}
 	if firstNonEmpty(p.AuthType, "oauth2") == "oauth2" && auth.NeedsRefresh(secret.AccessExpires, time.Now()) && secret.RefreshToken != "" {
 		oauthClient := auth.HTTPClientWithTimeout(cfg.Timeout())
 		refreshed, refreshErr := auth.Refresh(ctx, oauthClient, secret)
 		if refreshErr != nil {
-			return nil, profileName, p, false, &worksection.Error{Code: worksection.CodeAuth, Message: refreshErr.Error()}
+			return clientResult{profileName: profileName, profile: p}, &worksection.Error{Code: worksection.CodeAuth, Message: refreshErr.Error()}
 		}
 		secret = refreshed
 		if err := store.Set(ctx, ref, secret); err != nil {
-			return nil, profileName, p, false, &worksection.Error{Code: worksection.CodeAuth, Message: "refreshed OAuth token could not be persisted: " + err.Error()}
+			return clientResult{profileName: profileName, profile: p}, &worksection.Error{Code: worksection.CodeAuth, Message: "refreshed OAuth token could not be persisted: " + err.Error()}
 		}
 	}
 	accountURL := firstNonEmpty(secret.AccountURL, p.AccountURL)
@@ -199,9 +206,14 @@ func (s *state) client(ctx context.Context) (*worksection.Client, string, config
 	}
 	limiter, err := worksection.NewLimiter(cfg.RateLimit())
 	if err != nil {
-		return nil, profileName, p, false, err
+		return clientResult{profileName: profileName, profile: p}, err
 	}
-	return worksection.NewClient(nil, creds, cfg.Timeout(), limiter), profileName, p, usedEnvFallback, nil
+	return clientResult{
+		client:          worksection.NewClient(nil, creds, cfg.Timeout(), limiter),
+		profileName:     profileName,
+		profile:         p,
+		usedEnvFallback: usedEnvFallback,
+	}, nil
 }
 
 func envSecretUsable(authType string, secret auth.SecretBundle) bool {
@@ -222,17 +234,15 @@ func (s *state) runActionWithOptions(cmd *cobra.Command, action string, params m
 	if err := worksection.ValidateAction(action, params, allowUnknown); err != nil {
 		return writeFailure(cmd.OutOrStderr(), s, action, "", err)
 	}
-	client, profileName, p, usedEnvFallback, err := s.client(cmd.Context())
+	clientInfo, err := s.client(cmd.Context())
 	if err != nil {
-		return writeFailure(cmd.OutOrStderr(), s, action, profileName, err)
+		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, err)
 	}
-	if usedEnvFallback {
-		s.writeDiagnostic(cmd, "profile=%s secret_ref=%s unavailable; using environment credentials", profileName, firstNonEmpty(p.SecretRef, "[none]"))
-	}
-	s.writeDiagnostic(cmd, "action=%s profile=%s account_url=%s", action, profileName, firstNonEmpty(p.AccountURL, "[unknown]"))
-	raw, err := client.CallRaw(cmd.Context(), action, params)
+	s.writeEnvFallbackDiagnostic(cmd, clientInfo)
+	s.writeDiagnostic(cmd, "action=%s profile=%s account_url=%s", action, clientInfo.profileName, firstNonEmpty(clientInfo.profile.AccountURL, "[unknown]"))
+	raw, err := clientInfo.client.CallRaw(cmd.Context(), action, params)
 	if err != nil {
-		return writeFailure(cmd.OutOrStderr(), s, action, profileName, err)
+		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, err)
 	}
 	if s.format == "raw" {
 		if err := writeRawBytes(cmd.OutOrStdout(), s.out, raw); err != nil {
@@ -254,7 +264,7 @@ func (s *state) runActionWithOptions(cmd *cobra.Command, action string, params m
 		return err
 	}
 	if resp.Status != "" && resp.Status != "ok" {
-		return writeFailure(cmd.OutOrStderr(), s, action, profileName, &worksection.Error{Code: worksection.CodeAPI, Message: worksection.ResponseErrorMessage(resp), Details: map[string]any{"action": action}})
+		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, &worksection.Error{Code: worksection.CodeAPI, Message: worksection.ResponseErrorMessage(resp), Details: map[string]any{"action": action}})
 	}
 	data := resp.OutputData(action)
 	var extraWarnings []string
@@ -265,13 +275,13 @@ func (s *state) runActionWithOptions(cmd *cobra.Command, action string, params m
 		}
 	}
 	spec, _ := worksection.LookupAction(action)
-	fullEnv := output.SuccessWithContract(action, profileName, p.AccountURL, data, spec.Response)
+	fullEnv := output.SuccessWithContract(action, clientInfo.profileName, clientInfo.profile.AccountURL, data, spec.Response)
 	limited := false
 	data, limited, err = output.LimitData(data, s.limit, spec.Response)
 	if err != nil {
 		return err
 	}
-	env := output.SuccessWithContract(action, profileName, p.AccountURL, data, spec.Response)
+	env := output.SuccessWithContract(action, clientInfo.profileName, clientInfo.profile.AccountURL, data, spec.Response)
 	if fullEnv.Meta.Truncated && !env.Meta.Truncated {
 		env.Meta.Truncated = true
 		env.Meta.Warnings = append(env.Meta.Warnings, fullEnv.Meta.Warnings...)
@@ -404,6 +414,13 @@ func (s *state) writeDiagnostic(cmd *cobra.Command, format string, args ...any) 
 		return
 	}
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "wsectl: "+format+"\n", args...)
+}
+
+func (s *state) writeEnvFallbackDiagnostic(cmd *cobra.Command, clientInfo clientResult) {
+	if !clientInfo.usedEnvFallback {
+		return
+	}
+	s.writeDiagnostic(cmd, "profile=%s secret_ref=%s unavailable; using environment credentials", clientInfo.profileName, firstNonEmpty(clientInfo.profile.SecretRef, "[none]"))
 }
 
 func writeRawBytes(w io.Writer, outPath string, raw []byte) error {

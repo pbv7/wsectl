@@ -22,11 +22,12 @@ func newDoctorCommand(s *state) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			deps := doctor.DefaultDependencies()
 			deps.APICheck = func(ctx context.Context) error {
-				client, _, _, _, err := s.client(ctx)
+				clientInfo, err := s.client(ctx)
 				if err != nil {
 					return err
 				}
-				_, err = client.Call(ctx, "me", nil)
+				s.writeEnvFallbackDiagnostic(cmd, clientInfo)
+				_, err = clientInfo.client.Call(ctx, "me", nil)
 				return err
 			}
 			report, diagnosisErr := doctor.Run(cmd.Context(), doctor.Options{

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -15,12 +16,12 @@ func Validate(cfg Config) error {
 	switch cfg.Defaults.Output {
 	case "auto", "json", "yaml", "table", "ndjson", "raw":
 	default:
-		return fmt.Errorf("invalid output %q", cfg.Defaults.Output)
+		return validationFailure(validationKindOutput, "invalid output %q", cfg.Defaults.Output)
 	}
 	if d, err := time.ParseDuration(cfg.Defaults.Timeout); cfg.Defaults.Timeout != "" && err != nil {
-		return fmt.Errorf("invalid timeout %q", cfg.Defaults.Timeout)
+		return validationFailure(validationKindTimeout, "invalid timeout %q", cfg.Defaults.Timeout)
 	} else if cfg.Defaults.Timeout != "" && d <= 0 {
-		return fmt.Errorf("timeout must be positive")
+		return validationFailure(validationKindTimeout, "timeout must be positive")
 	}
 	if err := validateRateLimit(cfg.Defaults.RateLimit); err != nil {
 		return err
@@ -50,11 +51,39 @@ func validateRateLimit(spec string) error {
 	}
 	parts := strings.Split(spec, "/")
 	if len(parts) != 2 || parts[1] != "s" {
-		return fmt.Errorf("unsupported rate limit %q, expected N/s", spec)
+		return validationFailure(validationKindRateLimit, "unsupported rate limit %q, expected N/s", spec)
 	}
 	n, err := strconv.Atoi(parts[0])
 	if err != nil || n <= 0 {
-		return fmt.Errorf("unsupported rate limit %q, expected N/s", spec)
+		return validationFailure(validationKindRateLimit, "unsupported rate limit %q, expected N/s", spec)
 	}
 	return nil
+}
+
+type validationKind string
+
+const (
+	validationKindOutput    validationKind = "output"
+	validationKindTimeout   validationKind = "timeout"
+	validationKindRateLimit validationKind = "rate_limit"
+)
+
+type validationError struct {
+	kind validationKind
+	err  error
+}
+
+func (e validationError) Error() string { return e.err.Error() }
+func (e validationError) Unwrap() error { return e.err }
+
+func validationFailure(kind validationKind, format string, args ...any) error {
+	return validationError{kind: kind, err: fmt.Errorf(format, args...)}
+}
+
+func validationKindOf(err error) (validationKind, bool) {
+	var validationErr validationError
+	if errors.As(err, &validationErr) {
+		return validationErr.kind, true
+	}
+	return "", false
 }

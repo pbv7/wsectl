@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -230,14 +229,14 @@ func Save(cfg Config) error {
 }
 
 func envOverrideError(err error, sources envSources, overrides Overrides) error {
-	msg := err.Error()
-	if overrides.Output == "" && sources.output != "" && strings.Contains(msg, "invalid output") {
+	kind, _ := validationKindOf(err)
+	if overrides.Output == "" && sources.output != "" && kind == validationKindOutput {
 		return fmt.Errorf("WSECTL_OUTPUT=%q: %w", sources.output, err)
 	}
-	if overrides.Timeout == "" && sources.timeout != "" && strings.Contains(msg, "timeout") {
+	if overrides.Timeout == "" && sources.timeout != "" && kind == validationKindTimeout {
 		return fmt.Errorf("WSECTL_TIMEOUT=%q: %w", sources.timeout, err)
 	}
-	if overrides.RateLimit == "" && sources.rateLimit != "" && strings.Contains(msg, "rate limit") {
+	if overrides.RateLimit == "" && sources.rateLimit != "" && kind == validationKindRateLimit {
 		return fmt.Errorf("WSECTL_RATE_LIMIT=%q: %w", sources.rateLimit, err)
 	}
 	return err
@@ -247,7 +246,38 @@ func tomlProfileKey(name string) string {
 	if ValidateNewProfileName(name) == nil {
 		return name
 	}
-	return strconv.Quote(name)
+	return tomlBasicString(name)
+}
+
+func tomlBasicString(value string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range value {
+		switch r {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		case '\b':
+			b.WriteString(`\b`)
+		case '\t':
+			b.WriteString(`\t`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\f':
+			b.WriteString(`\f`)
+		case '\r':
+			b.WriteString(`\r`)
+		default:
+			if r < 0x20 || r == 0x7f {
+				fmt.Fprintf(&b, `\u%04X`, r)
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 func ValidateAccountURL(raw string) error {

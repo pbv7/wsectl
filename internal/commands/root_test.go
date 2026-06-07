@@ -357,6 +357,60 @@ secret_ref = %q
 	}
 }
 
+func TestFilesDownloadVerboseEnvFallbackDiagnostic(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("action") != "download" || r.URL.Query().Get("id_file") != "file-1" {
+			t.Fatalf("unexpected request %s", r.URL.String())
+		}
+		if r.Header.Get("Authorization") != "Bearer env-token" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte("download bytes"))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	missingSecretPath := filepath.Join(dir, "missing-secret.json")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`current_profile = "default"
+
+[defaults]
+output = "table"
+rate_limit = "1/s"
+timeout = "30s"
+
+[profiles.default]
+account_url = "https://company.worksection.com"
+auth_type = "oauth2"
+secret_ref = %q
+`, "plaintext:"+missingSecretPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WSECTL_CONFIG", configPath)
+	t.Setenv("WSECTL_ACCOUNT_URL", server.URL)
+	t.Setenv("WSECTL_ACCESS_TOKEN", "env-token")
+
+	outPath := filepath.Join(dir, "download.bin")
+	out, err := execute("files", "download", "file-1", "--out", outPath, "--verbose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "using environment credentials") || !strings.Contains(out, "plaintext:") {
+		t.Fatalf("verbose env fallback diagnostic missing from download:\n%s", out)
+	}
+	if strings.Contains(out, "env-token") {
+		t.Fatalf("verbose output exposed env token:\n%s", out)
+	}
+	raw, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "download bytes" {
+		t.Fatalf("download output = %q", raw)
+	}
+}
+
 func TestDoctorJSONErrorIsSingleEnvelope(t *testing.T) {
 	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 	t.Setenv("WSECTL_ACCOUNT_URL", "https://company.worksection.com")
