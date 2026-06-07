@@ -1,5 +1,11 @@
 # wsectl
 
+[![CI](https://github.com/pbv7/wsectl/actions/workflows/ci.yml/badge.svg)](https://github.com/pbv7/wsectl/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/pbv7/wsectl/branch/main/graph/badge.svg)](https://codecov.io/gh/pbv7/wsectl)
+[![Go Reference](https://pkg.go.dev/badge/github.com/pbv7/wsectl.svg)](https://pkg.go.dev/github.com/pbv7/wsectl)
+[![Go Report Card](https://goreportcard.com/badge/github.com/pbv7/wsectl)](https://goreportcard.com/report/github.com/pbv7/wsectl)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Unofficial command-line client for Worksection.
 
 `wsectl` is a Go CLI for read-only Worksection access. It is built for humans at a terminal and for scripts or coding agents that need stable JSON, predictable exit codes, explicit account profiles, and safe credential handling.

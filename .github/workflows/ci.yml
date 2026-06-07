@@ -30,6 +30,14 @@ jobs:
           go-version-file: go.mod
       - run: make check
       - run: make coverage-check
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/coverage.out
+          flags: unittests
+          name: wsectl-go
+          fail_ci_if_error: true
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
