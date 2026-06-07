@@ -84,6 +84,16 @@ func TestWriteRawToFile(t *testing.T) {
 	}
 }
 
+func TestWriteFailOnTruncatedBeforeRendering(t *testing.T) {
+	env := Success("get_users", "default", "", json.RawMessage(`[{"id":"1"}]`))
+	env.Meta.Truncated = true
+	err := Write(&bytes.Buffer{}, env, Options{Format: "definitely-not-a-format", FailOnTruncated: true})
+	wsErr, ok := err.(*worksection.Error)
+	if !ok || wsErr.Code != worksection.CodeTruncated {
+		t.Fatalf("error = %#v, want truncated Worksection error", err)
+	}
+}
+
 func TestWriteYAMLTableAndJQ(t *testing.T) {
 	env := Success("get_users", "default", "", json.RawMessage(`[{"id":"1","name":"Ada"}]`))
 	var yamlOut bytes.Buffer

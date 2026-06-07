@@ -87,55 +87,82 @@ func Write(w io.Writer, env Envelope, opts Options) error {
 	if env.Meta.Truncated && opts.FailOnTruncated {
 		return &worksection.Error{Code: worksection.CodeTruncated, Message: "response may be truncated"}
 	}
-	format := opts.Format
-	if format == "" || format == "auto" {
-		format = "json"
-		if f, ok := w.(*os.File); ok {
-			if st, err := f.Stat(); err == nil && (st.Mode()&os.ModeCharDevice) != 0 {
-				format = "table"
-			}
-		}
-	}
-	var out []byte
-	var err error
-	if len(opts.Fields) > 0 && format != "table" && format != "raw" {
-		env, err = ApplyFieldSelection(env, opts.Fields, opts.KnownFields, opts.Contract)
-		if err != nil {
-			return err
-		}
-	}
-	switch format {
-	case "json":
-		out, err = JSON(env)
-	case "yaml":
-		out, err = YAML(env)
-	case "ndjson":
-		out, err = NDJSON(env, opts.Contract)
-	case "table":
-		out, err = Table(env, opts.Contract)
-	case "raw":
-		out = env.Data
-	default:
-		return worksection.UsageError("unsupported output format %q", opts.Format)
-	}
+	format := resolveFormat(w, opts.Format)
+	env, err := applyWriteFields(env, opts, format)
 	if err != nil {
 		return err
 	}
-	if opts.JQ != "" {
-		out, err = ApplyJQ(out, opts.JQ)
-		if err != nil {
-			return err
-		}
+	out, err := renderEnvelope(env, opts, format)
+	if err != nil {
+		return err
 	}
-	if opts.Out != "" {
-		if opts.Out == "-" {
-			_, err = w.Write(out)
-			return err
-		}
-		return os.WriteFile(opts.Out, out, 0o600)
+	out, err = applyWriteJQ(out, opts.JQ)
+	if err != nil {
+		return err
 	}
-	_, err = fmt.Fprintln(w, string(out))
-	return err
+	return writeRenderedOutput(w, opts.Out, out)
+}
+
+func resolveFormat(w io.Writer, requested string) string {
+	if requested != "" && requested != "auto" {
+		return requested
+	}
+	if outputIsTerminal(w) {
+		return "table"
+	}
+	return "json"
+}
+
+func outputIsTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	st, err := f.Stat()
+	return err == nil && (st.Mode()&os.ModeCharDevice) != 0
+}
+
+func applyWriteFields(env Envelope, opts Options, format string) (Envelope, error) {
+	if len(opts.Fields) == 0 || format == "table" || format == "raw" {
+		return env, nil
+	}
+	return ApplyFieldSelection(env, opts.Fields, opts.KnownFields, opts.Contract)
+}
+
+func renderEnvelope(env Envelope, opts Options, format string) ([]byte, error) {
+	switch format {
+	case "json":
+		return JSON(env)
+	case "yaml":
+		return YAML(env)
+	case "ndjson":
+		return NDJSON(env, opts.Contract)
+	case "table":
+		return Table(env, opts.Contract)
+	case "raw":
+		return env.Data, nil
+	default:
+		return nil, worksection.UsageError("unsupported output format %q", opts.Format)
+	}
+}
+
+func applyWriteJQ(out []byte, expr string) ([]byte, error) {
+	if expr == "" {
+		return out, nil
+	}
+	return ApplyJQ(out, expr)
+}
+
+func writeRenderedOutput(w io.Writer, outPath string, out []byte) error {
+	if outPath == "" {
+		_, err := fmt.Fprintln(w, string(out))
+		return err
+	}
+	if outPath == "-" {
+		_, err := w.Write(out)
+		return err
+	}
+	return os.WriteFile(outPath, out, 0o600)
 }
 
 func emptyArrayIfMissing(data json.RawMessage) json.RawMessage {
