@@ -3,6 +3,7 @@ package atomicfile
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -24,6 +25,9 @@ func TestWriteFileCreatesParentAndSetsPermissions(t *testing.T) {
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		return
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("permissions = %04o, want 0600", info.Mode().Perm())
