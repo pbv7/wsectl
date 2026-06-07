@@ -200,51 +200,97 @@ func Actions() []Action {
 // ValidateAction checks a known action and its parameters before a request.
 func ValidateAction(action string, params map[string]string, allowUnknown bool) error {
 	spec, known := LookupAction(action)
+	if err := validateActionAvailability(action, spec, known, allowUnknown); err != nil || !known {
+		return err
+	}
+	if err := validateProvidedParams(action, params, spec, allowUnknown); err != nil {
+		return err
+	}
+	if err := validateRequiredParams(action, params, spec.Params); err != nil {
+		return err
+	}
+	if err := validateAnyOfParams(action, params, spec.AnyOf); err != nil {
+		return err
+	}
+	return validateExactlyOneParams(action, params, spec.ExactlyOneOf)
+}
+
+func validateActionAvailability(action string, spec Action, known, allowUnknown bool) error {
 	if known && !spec.ReadOnly {
 		return UsageError("This action changes Worksection data and is blocked in the read-only build.")
 	}
-	if !known {
+	if known || allowUnknown {
+		return nil
+	}
+	return UsageError("unknown action %q; pass --allow-unknown to call it", action)
+}
+
+func validateProvidedParams(action string, params map[string]string, spec Action, allowUnknown bool) error {
+	knownParams := paramSpecMap(spec.Params)
+	for name, value := range params {
+		if err := validateProvidedParam(action, name, value, knownParams, allowUnknown); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func paramSpecMap(params []ParamSpec) map[string]ParamSpec {
+	knownParams := map[string]ParamSpec{}
+	for _, p := range params {
+		knownParams[p.Name] = p
+	}
+	return knownParams
+}
+
+func validateProvidedParam(action, name, value string, knownParams map[string]ParamSpec, allowUnknown bool) error {
+	if value == "" {
+		return nil
+	}
+	p, ok := knownParams[name]
+	if !ok {
 		if allowUnknown {
 			return nil
 		}
-		return UsageError("unknown action %q; pass --allow-unknown to call it", action)
+		return UsageError("parameter %q is not documented for action %s", name, action)
 	}
-	knownParams := map[string]ParamSpec{}
-	for _, p := range spec.Params {
-		knownParams[p.Name] = p
+	if len(p.Enum) == 0 || enumContainsCSV(p.Enum, value, p.Type == ParamCSV) {
+		return nil
 	}
-	for name, value := range params {
-		if value == "" {
-			continue
-		}
-		p, ok := knownParams[name]
-		if !ok {
-			if allowUnknown {
-				continue
-			}
-			return UsageError("parameter %q is not documented for action %s", name, action)
-		}
-		if len(p.Enum) > 0 && !enumContainsCSV(p.Enum, value, p.Type == ParamCSV) {
-			if (action == "get_tasks" || action == "get_all_tasks") && name == "filter" && value == "done" {
-				return UsageError("completed tasks are not available through %s; use `wsectl tasks search --status done`", action)
-			}
-			return UsageError("parameter %q for action %s must be one of: %s", name, action, strings.Join(p.Enum, ", "))
-		}
+	return enumValidationError(action, name, value, p.Enum)
+}
+
+func enumValidationError(action, name, value string, enum []string) error {
+	if (action == "get_tasks" || action == "get_all_tasks") && name == "filter" && value == "done" {
+		return UsageError("completed tasks are not available through %s; use `wsectl tasks search --status done`", action)
 	}
-	for _, p := range spec.Params {
+	return UsageError("parameter %q for action %s must be one of: %s", name, action, strings.Join(enum, ", "))
+}
+
+func validateRequiredParams(action string, params map[string]string, specs []ParamSpec) error {
+	for _, p := range specs {
 		if p.Required && strings.TrimSpace(params[p.Name]) == "" {
 			return UsageError("parameter %q is required for action %s", p.Name, action)
 		}
 	}
-	for _, group := range spec.AnyOf {
+	return nil
+}
+
+func validateAnyOfParams(action string, params map[string]string, groups [][]string) error {
+	for _, group := range groups {
 		if countPresent(params, group) == 0 {
 			return UsageError("action %s requires at least one of: %s", action, strings.Join(group, ", "))
 		}
 	}
-	if len(spec.ExactlyOneOf) > 0 {
-		if count := countPresent(params, spec.ExactlyOneOf); count != 1 {
-			return UsageError("action %s requires exactly one of: %s", action, strings.Join(spec.ExactlyOneOf, ", "))
-		}
+	return nil
+}
+
+func validateExactlyOneParams(action string, params map[string]string, group []string) error {
+	if len(group) == 0 {
+		return nil
+	}
+	if count := countPresent(params, group); count != 1 {
+		return UsageError("action %s requires exactly one of: %s", action, strings.Join(group, ", "))
 	}
 	return nil
 }
