@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func TestRecordReadTrimAndClear(t *testing.T) {
 	}
 	if st, err := os.Stat(path); err != nil {
 		t.Fatal(err)
-	} else if st.Mode().Perm() != 0o600 {
+	} else if runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Fatalf("history mode = %o, want 0600", st.Mode().Perm())
 	}
 	if err := Clear(context.Background(), path); err != nil {
