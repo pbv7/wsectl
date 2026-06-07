@@ -29,6 +29,7 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make check
+      - run: make coverage-check
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2

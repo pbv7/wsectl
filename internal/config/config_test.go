@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadEnvOverrides(t *testing.T) {
@@ -19,6 +20,75 @@ func TestLoadEnvOverrides(t *testing.T) {
 	}
 	if cfg.Defaults.Output != "json" || cfg.Defaults.Timeout != "5s" || cfg.Defaults.RateLimit != "2/s" {
 		t.Fatalf("unexpected defaults %#v", cfg.Defaults)
+	}
+}
+
+func TestLoadFlagOverridesAndActiveProfile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(`current_profile = "default"
+
+[defaults]
+output = "table"
+rate_limit = "1/s"
+timeout = "30s"
+
+[profiles.default]
+account_url = "https://default.worksection.com"
+auth_type = "oauth2"
+secret_ref = "keyring:wsectl/default"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(context.Background(), Overrides{
+		ConfigPath: path,
+		Profile:    "admin",
+		AccountURL: "https://admin.worksection.com",
+		Output:     "json",
+		Timeout:    "5s",
+		RateLimit:  "2/s",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Defaults.Output != "json" || cfg.Timeout() != 5*time.Second || cfg.RateLimit() != "2/s" {
+		t.Fatalf("overrides not applied: %#v", cfg.Defaults)
+	}
+	name, profile, err := cfg.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "admin" || profile.AccountURL != "https://admin.worksection.com" || profile.AuthType != "oauth2" {
+		t.Fatalf("unexpected active profile %s %#v", name, profile)
+	}
+}
+
+func TestActiveProfileEnvironmentFallbackAndOverrides(t *testing.T) {
+	cfg := Builtin()
+	t.Setenv("WSECTL_PROFILE", "envprofile")
+	t.Setenv("WSECTL_ACCOUNT_URL", "https://env.worksection.com")
+	name, profile, err := cfg.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "envprofile" || profile.SecretRef != "env:" || profile.AccountURL != "https://env.worksection.com" {
+		t.Fatalf("unexpected env profile %s %#v", name, profile)
+	}
+
+	cfg.Profiles["envprofile"] = Profile{AccountURL: "https://configured.worksection.com", AuthType: "admin_token", SecretRef: "keyring:wsectl/admin"}
+	name, profile, err = cfg.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "envprofile" || profile.AccountURL != "https://env.worksection.com" || profile.AuthType != "admin_token" {
+		t.Fatalf("environment account URL did not override configured profile: %s %#v", name, profile)
+	}
+}
+
+func TestActiveProfileMissingWithoutEnvironmentFails(t *testing.T) {
+	cfg := Builtin()
+	_, _, err := cfg.ActiveProfile()
+	if err == nil || !strings.Contains(err.Error(), "profile \"default\" not found") {
+		t.Fatalf("expected missing profile error, got %v", err)
 	}
 }
 
@@ -80,6 +150,26 @@ func TestSaveSortsProfiles(t *testing.T) {
 	text := string(raw)
 	if strings.Index(text, "[profiles.alpha]") > strings.Index(text, "[profiles.zeta]") {
 		t.Fatalf("profiles were not sorted:\n%s", text)
+	}
+}
+
+func TestRemoveProfileUpdatesCurrentProfile(t *testing.T) {
+	cfg := Builtin()
+	if err := AddProfile(&cfg, "default", Profile{AccountURL: "https://company.worksection.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddProfile(&cfg, "other", Profile{AccountURL: "https://other.worksection.com"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg.CurrentProfile = "other"
+	if err := RemoveProfile(&cfg, "other"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CurrentProfile != "default" {
+		t.Fatalf("current profile = %q, want default", cfg.CurrentProfile)
+	}
+	if err := RemoveProfile(&cfg, "missing"); err == nil {
+		t.Fatal("expected missing profile removal to fail")
 	}
 }
 

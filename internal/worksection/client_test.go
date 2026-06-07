@@ -255,6 +255,25 @@ func TestClientDownloadBlocksInsecureURL(t *testing.T) {
 	}
 }
 
+func TestNormalizeHTTPSHost(t *testing.T) {
+	tests := map[string]string{
+		"https://Example.Test.":        "example.test",
+		"https://example.test:443":     "example.test",
+		"https://example.test:8443":    "example.test:8443",
+		"https://[::1]:443/callback":   "::1",
+		"https://[::1]:33443/callback": "[::1]:33443",
+	}
+	for raw, want := range tests {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := normalizeHTTPSHost(u); got != want {
+			t.Fatalf("normalizeHTTPSHost(%s) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
 func TestClientDownloadJSONMissingURL(t *testing.T) {
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{
@@ -298,6 +317,52 @@ func TestClientClassifiesHTTP429(t *testing.T) {
 	wsErr, ok := err.(*Error)
 	if !ok || wsErr.Code != CodeRateLimited {
 		t.Fatalf("error = %#v", err)
+	}
+}
+
+func TestResponseOutputDataPreservesCompositeAndObjectBodies(t *testing.T) {
+	composite, err := ParseResponse([]byte(`{"status":"ok","data":[{"id":"1"}],"total":{"money":"10"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := composite.OutputData("get_costs"); !strings.Contains(string(got), `"total"`) || strings.Contains(string(got), `"status"`) {
+		t.Fatalf("composite output data = %s", got)
+	}
+	object, err := ParseResponse([]byte(`{"status":"ok","url":"https://example.test/file.bin","name":"file.bin"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := object.OutputData("download"); !strings.Contains(string(got), `"url"`) || strings.Contains(string(got), `"status"`) {
+		t.Fatalf("object output data = %s", got)
+	}
+	empty, err := ParseResponse([]byte(`{"status":"ok"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := empty.OutputData("get_users"); string(got) != "[]" {
+		t.Fatalf("empty output data = %s", got)
+	}
+}
+
+func TestSchemaNewLimiterAndEncodeParams(t *testing.T) {
+	if spec, ok := Schema("get_users"); !ok || spec.Name != "get_users" {
+		t.Fatalf("schema lookup failed: %#v ok=%t", spec, ok)
+	}
+	limiter, err := NewLimiter("2/s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if limiter == nil {
+		t.Fatal("expected limiter")
+	}
+	for _, spec := range []string{"bad", "0/s", "2/m"} {
+		if _, err := NewLimiter(spec); err == nil {
+			t.Fatalf("expected invalid limiter %q to fail", spec)
+		}
+	}
+	encoded := EncodeParams("get_users", map[string]string{"email": "a@example.com", "empty": ""})
+	if !strings.Contains(encoded, "action=get_users") || !strings.Contains(encoded, "email=a%40example.com") || strings.Contains(encoded, "empty") {
+		t.Fatalf("unexpected encoded params %q", encoded)
 	}
 }
 

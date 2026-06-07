@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/pbv7/wsectl/internal/auth"
+	"github.com/pbv7/wsectl/internal/doctor"
 )
 
 func execute(args ...string) (string, error) {
@@ -334,6 +335,30 @@ func TestDoctorJSONErrorIsSingleEnvelope(t *testing.T) {
 	}
 	if env.Status != "error" || env.Error.Code == "" {
 		t.Fatalf("unexpected doctor envelope %#v", env)
+	}
+}
+
+func TestDoctorTextOutputIncludesChecksAndRemediation(t *testing.T) {
+	report := doctor.Report{
+		Healthy:     false,
+		ConfigPath:  "/tmp/config.toml",
+		Profile:     "default",
+		AccountURL:  "https://company.worksection.com",
+		Remediation: []string{"Run `wsectl auth login`."},
+		Checks: []doctor.Check{
+			{Name: "config_file", Status: doctor.StatusOK, Message: "config is readable"},
+			{Name: "credentials", Status: doctor.StatusFail, Message: "OAuth access token is missing", Remediation: "Run `wsectl auth login`."},
+		},
+	}
+	var out bytes.Buffer
+	if err := writeDoctorText(&out, report); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, want := range []string{"wsectl doctor", "[ok] config_file", "[fail] credentials", "Remediation:", "Overall: unhealthy"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("doctor text missing %q:\n%s", want, text)
+		}
 	}
 }
 

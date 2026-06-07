@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net"
@@ -23,6 +24,46 @@ func TestEnvStore(t *testing.T) {
 	}
 	if b.AccessToken != "access" || b.AccountURL == "" {
 		t.Fatalf("unexpected bundle %#v", b)
+	}
+}
+
+func TestSecretRefParsingAndStoreSelection(t *testing.T) {
+	ref, err := ParseRef("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Scheme != "keyring" || ref.Name != "wsectl/default" {
+		t.Fatalf("default ref = %#v", ref)
+	}
+	ref, err = ParseRef("encrypted-file:/tmp/secret.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Scheme != "encrypted-file" || ref.Name != "/tmp/secret.json" {
+		t.Fatalf("parsed ref = %#v", ref)
+	}
+	if _, err := ParseRef("badref"); err == nil {
+		t.Fatal("expected invalid ref to fail")
+	}
+	for _, ref := range []SecretRef{
+		{Scheme: "keyring", Name: "wsectl/default"},
+		{Scheme: "env"},
+		{Scheme: "encrypted-file", Name: "secret.json"},
+		{Scheme: "plaintext", Name: "secret.json"},
+	} {
+		if _, err := StoreFor(ref); err != nil {
+			t.Fatalf("StoreFor(%#v) failed: %v", ref, err)
+		}
+	}
+	if _, err := StoreFor(SecretRef{Scheme: "unknown"}); err == nil {
+		t.Fatal("expected unsupported store to fail")
+	}
+}
+
+func TestCheckWritableNoopsForReadWriteStoreWithoutProbe(t *testing.T) {
+	store := memoryStore{}
+	if err := CheckWritable(context.Background(), store, SecretRef{Scheme: "memory"}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -189,6 +230,44 @@ func TestEncryptedFileStoreWritesVersionedArgon2Payload(t *testing.T) {
 	}
 }
 
+func TestEncryptedFileStoreReadsLegacyPayloadAndDeletes(t *testing.T) {
+	t.Setenv("WSECTL_SECRET_PASSPHRASE", "passphrase")
+	ref := SecretRef{Scheme: "encrypted-file", Name: t.TempDir() + "/legacy.json"}
+	aead, err := legacyAEAD("passphrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce := []byte("123456789012")
+	plain, err := json.Marshal(SecretBundle{AccessToken: "legacy-access"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := encryptedPayload{
+		Nonce: base64.StdEncoding.EncodeToString(nonce),
+		Data:  base64.StdEncoding.EncodeToString(aead.Seal(nil, nonce, plain, nil)),
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ref.Name, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := (EncryptedFileStore{}).Get(context.Background(), ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccessToken != "legacy-access" {
+		t.Fatalf("legacy token = %q", got.AccessToken)
+	}
+	if err := (EncryptedFileStore{}).Delete(context.Background(), ref); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(ref.Name); !os.IsNotExist(err) {
+		t.Fatalf("encrypted secret should be deleted, stat err=%v", err)
+	}
+}
+
 func TestEncryptedFileStoreCheckWritableRequiresPassphrase(t *testing.T) {
 	err := EncryptedFileStore{}.CheckWritable(context.Background(), SecretRef{Name: t.TempDir() + "/secret.json"})
 	if err == nil || !strings.Contains(err.Error(), "WSECTL_SECRET_PASSPHRASE") {
@@ -203,10 +282,48 @@ func TestPlaintextStoreCheckWritable(t *testing.T) {
 	}
 }
 
+func TestPlaintextStoreRoundTripAndDelete(t *testing.T) {
+	ref := SecretRef{Name: t.TempDir() + "/secret.json"}
+	store := PlaintextStore{}
+	want := SecretBundle{AccessToken: "access", RefreshToken: "refresh"}
+	if err := store.Set(context.Background(), ref, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Get(context.Background(), ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccessToken != want.AccessToken || got.RefreshToken != want.RefreshToken {
+		t.Fatalf("plaintext roundtrip = %#v", got)
+	}
+	if err := store.Delete(context.Background(), ref); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Get(context.Background(), ref); err == nil {
+		t.Fatal("expected deleted plaintext secret to be unavailable")
+	}
+}
+
 func TestEnvStoreCheckWritableFails(t *testing.T) {
 	err := EnvStore{}.CheckWritable(context.Background(), SecretRef{Scheme: "env"})
 	if err == nil || !strings.Contains(err.Error(), "read-only") {
 		t.Fatalf("expected read-only error, got %v", err)
+	}
+}
+
+func TestEnvStoreSetDeleteFail(t *testing.T) {
+	store := EnvStore{}
+	if err := store.Set(context.Background(), SecretRef{Scheme: "env"}, SecretBundle{}); err == nil {
+		t.Fatal("expected env set to fail")
+	}
+	if err := store.Delete(context.Background(), SecretRef{Scheme: "env"}); err == nil {
+		t.Fatal("expected env delete to fail")
+	}
+}
+
+func TestAuthAdminHashDelegatesToWorksectionHash(t *testing.T) {
+	if got := AdminHash("get_users", map[string]string{"empty": "", "id": "1"}, "key"); got == "" || len(got) != 32 {
+		t.Fatalf("unexpected admin hash %q", got)
 	}
 }
 
@@ -326,3 +443,9 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
 }
+
+type memoryStore struct{}
+
+func (memoryStore) Get(context.Context, SecretRef) (SecretBundle, error) { return SecretBundle{}, nil }
+func (memoryStore) Set(context.Context, SecretRef, SecretBundle) error   { return nil }
+func (memoryStore) Delete(context.Context, SecretRef) error              { return nil }
