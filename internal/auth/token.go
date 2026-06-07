@@ -14,6 +14,7 @@ import (
 const RefreshURL = "https://worksection.com/oauth2/refresh"
 
 const defaultOAuthTimeout = 30 * time.Second
+const refreshAttempts = 3
 
 // HTTPClientWithTimeout returns the timeout-bearing client used for OAuth
 // token exchange and refresh when tests do not inject a custom client.
@@ -40,72 +41,117 @@ func Refresh(ctx context.Context, client *http.Client, b SecretBundle) (SecretBu
 	if b.ClientID == "" || b.ClientSecret == "" || b.RefreshToken == "" {
 		return b, fmt.Errorf("client_id, client_secret, and refresh_token are required")
 	}
-	form := url.Values{}
-	form.Set("client_id", b.ClientID)
-	form.Set("client_secret", b.ClientSecret)
-	form.Set("grant_type", "refresh_token")
-	form.Set("refresh_token", b.RefreshToken)
+	form := refreshForm(b)
 	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, RefreshURL, strings.NewReader(form.Encode()))
+	for attempt := 0; attempt < refreshAttempts; attempt++ {
+		req, err := newRefreshRequest(ctx, form)
 		if err != nil {
 			return b, err
 		}
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = err
-			if attempt < 2 {
-				if sleepErr := sleepContext(ctx, time.Duration(attempt+1)*time.Second); sleepErr != nil {
-					return b, sleepErr
-				}
-				continue
+			if !canRetryRefreshAttempt(attempt) {
+				return b, err
 			}
-			return b, err
+			if err := sleepContext(ctx, refreshBackoff(attempt)); err != nil {
+				return b, err
+			}
+			continue
 		}
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			lastErr = oauthHTTPError("oauth refresh failed", resp)
-			_ = resp.Body.Close()
-			if !retryOAuthStatus(resp.StatusCode) || attempt == 2 {
-				return b, lastErr
-			}
-			delay := time.Duration(attempt+1) * time.Second
-			if resp.StatusCode == http.StatusTooManyRequests {
-				if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
-					if parsedDelay, err := parseRetryAfter(retryAfter, time.Now()); err == nil {
-						delay = parsedDelay
-					}
-				}
+		if refreshStatusFailed(resp) {
+			delay, err, retry := refreshHTTPFailure(resp, attempt)
+			lastErr = err
+			if !retry {
+				return b, err
 			}
 			if err := sleepContext(ctx, delay); err != nil {
 				return b, err
 			}
 			continue
 		}
-		defer func() { _ = resp.Body.Close() }()
-		var body struct {
-			AccessToken  string `json:"access_token"`
-			RefreshToken string `json:"refresh_token"`
-			ExpiresIn    int    `json:"expires_in"`
-			AccountURL   string `json:"account_url"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-			return b, err
-		}
-		if body.AccessToken == "" || body.RefreshToken == "" {
-			return b, fmt.Errorf("oauth refresh response did not include tokens")
-		}
-		b.AccessToken = body.AccessToken
-		b.RefreshToken = body.RefreshToken
-		if body.AccountURL != "" {
-			b.AccountURL = body.AccountURL
-		}
-		if body.ExpiresIn > 0 {
-			b.AccessExpires = time.Now().Add(time.Duration(body.ExpiresIn) * time.Second)
-		}
-		return b, nil
+		return decodeRefreshBundle(resp, b)
 	}
 	return b, lastErr
+}
+
+func refreshForm(b SecretBundle) url.Values {
+	form := url.Values{}
+	form.Set("client_id", b.ClientID)
+	form.Set("client_secret", b.ClientSecret)
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", b.RefreshToken)
+	return form
+}
+
+func newRefreshRequest(ctx context.Context, form url.Values) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, RefreshURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return req, nil
+}
+
+func canRetryRefreshAttempt(attempt int) bool {
+	return attempt < refreshAttempts-1
+}
+
+func refreshBackoff(attempt int) time.Duration {
+	return time.Duration(attempt+1) * time.Second
+}
+
+func refreshStatusFailed(resp *http.Response) bool {
+	return resp.StatusCode < 200 || resp.StatusCode >= 300
+}
+
+func refreshHTTPFailure(resp *http.Response, attempt int) (time.Duration, error, bool) {
+	status := resp.StatusCode
+	retryAfter := resp.Header.Get("Retry-After")
+	err := oauthHTTPError("oauth refresh failed", resp)
+	_ = resp.Body.Close()
+	if !retryOAuthStatus(status) || !canRetryRefreshAttempt(attempt) {
+		return 0, err, false
+	}
+	return refreshRetryDelay(status, retryAfter, attempt), err, true
+}
+
+func refreshRetryDelay(status int, retryAfter string, attempt int) time.Duration {
+	if status == http.StatusTooManyRequests && retryAfter != "" {
+		if parsedDelay, err := parseRetryAfter(retryAfter, time.Now()); err == nil {
+			return parsedDelay
+		}
+	}
+	return refreshBackoff(attempt)
+}
+
+func decodeRefreshBundle(resp *http.Response, b SecretBundle) (SecretBundle, error) {
+	defer func() { _ = resp.Body.Close() }()
+	var body struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+		AccountURL   string `json:"account_url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return b, err
+	}
+	if body.AccessToken == "" || body.RefreshToken == "" {
+		return b, fmt.Errorf("oauth refresh response did not include tokens")
+	}
+	return applyRefreshBody(b, body.AccessToken, body.RefreshToken, body.AccountURL, body.ExpiresIn), nil
+}
+
+func applyRefreshBody(b SecretBundle, accessToken, refreshToken, accountURL string, expiresIn int) SecretBundle {
+	b.AccessToken = accessToken
+	b.RefreshToken = refreshToken
+	if accountURL != "" {
+		b.AccountURL = accountURL
+	}
+	if expiresIn > 0 {
+		b.AccessExpires = time.Now().Add(time.Duration(expiresIn) * time.Second)
+	}
+	return b
 }
 
 // ExchangeCode exchanges a Worksection OAuth authorization code for access and

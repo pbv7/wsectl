@@ -161,6 +161,12 @@ func TestRefreshRetriesTransientFailures(t *testing.T) {
 	calls := 0
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		calls++
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if r.Form.Get("refresh_token") != "old" {
+			t.Fatalf("refresh_token = %q", r.Form.Get("refresh_token"))
+		}
 		if calls == 1 {
 			return &http.Response{
 				StatusCode: http.StatusTooManyRequests,
