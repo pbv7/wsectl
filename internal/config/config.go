@@ -67,6 +67,8 @@ func Builtin() Config {
 func Load(_ context.Context, overrides Overrides) (Config, error) {
 	cfg := Builtin()
 	path := firstNonEmpty(overrides.ConfigPath, os.Getenv("WSECTL_CONFIG"), DefaultConfigPath())
+	// Keep "." inside profile keys such as client.acme instead of treating
+	// them as nested Viper paths.
 	v := viper.NewWithOptions(viper.KeyDelimiter("::"))
 	v.SetConfigFile(path)
 	v.SetConfigType("toml")

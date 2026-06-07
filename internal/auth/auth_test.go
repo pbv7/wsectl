@@ -97,6 +97,73 @@ func TestAuthorizationURLUsesSingleSpaceSeparatedScope(t *testing.T) {
 	}
 }
 
+func TestClassifyCallbackRequest(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		query      url.Values
+		status     int
+		code       string
+		wantErr    string
+		wantPhrase string
+	}{
+		{
+			name:       "non get",
+			method:     http.MethodPost,
+			status:     http.StatusMethodNotAllowed,
+			wantPhrase: "Unsupported",
+		},
+		{
+			name:       "authorization denial",
+			method:     http.MethodGet,
+			query:      url.Values{"error": []string{"access_denied"}},
+			status:     http.StatusOK,
+			wantErr:    "oauth authorization failed: access_denied",
+			wantPhrase: "Authorization failed",
+		},
+		{
+			name:       "invalid state keeps listener alive",
+			method:     http.MethodGet,
+			query:      url.Values{"state": []string{"bad"}, "code": []string{"wrong"}},
+			status:     http.StatusBadRequest,
+			wantPhrase: "Invalid OAuth state",
+		},
+		{
+			name:       "missing code",
+			method:     http.MethodGet,
+			query:      url.Values{"state": []string{"good"}},
+			status:     http.StatusOK,
+			wantErr:    "missing oauth code",
+			wantPhrase: "Missing OAuth code",
+		},
+		{
+			name:       "success",
+			method:     http.MethodGet,
+			query:      url.Values{"state": []string{"good"}, "code": []string{"code-123"}},
+			status:     http.StatusOK,
+			code:       "code-123",
+			wantPhrase: "Authorization complete",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifyCallbackRequest(tt.method, tt.query, "good")
+			if got.Status != tt.status || got.Code != tt.code || !strings.Contains(got.Message, tt.wantPhrase) {
+				t.Fatalf("decision = %#v, want status=%d code=%q phrase=%q", got, tt.status, tt.code, tt.wantPhrase)
+			}
+			if tt.wantErr == "" {
+				if got.Err != nil {
+					t.Fatalf("unexpected callback error: %v", got.Err)
+				}
+				return
+			}
+			if got.Err == nil || got.Err.Error() != tt.wantErr {
+				t.Fatalf("callback error = %v, want %q", got.Err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestNeedsRefresh(t *testing.T) {
 	now := time.Now()
 	if !NeedsRefresh(now.Add(time.Minute), now) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pbv7/wsectl/internal/worksection"
 )
@@ -24,14 +25,14 @@ func Table(env Envelope, contract worksection.ResponseContract) ([]byte, error) 
 	if len(arr) == 0 {
 		return []byte("No rows"), nil
 	}
-	keys := preferredKeys(arr)
+	keys, omitted := preferredKeys(arr)
 	widths := map[string]int{}
 	for _, k := range keys {
-		widths[k] = len(k)
+		widths[k] = displayWidth(k)
 	}
 	for _, row := range arr {
 		for _, k := range keys {
-			if l := len(cell(row[k])); l > widths[k] {
+			if l := displayWidth(cell(row[k])); l > widths[k] {
 				widths[k] = l
 			}
 		}
@@ -52,10 +53,13 @@ func Table(env Envelope, contract worksection.ResponseContract) ([]byte, error) 
 		}
 		b.WriteByte('\n')
 	}
+	if omitted > 0 {
+		fmt.Fprintf(&b, "\nNote: table output shows %d of %d columns; use --fields or --json to inspect omitted fields.\n", len(keys), len(keys)+omitted)
+	}
 	return bytes.TrimRight(b.Bytes(), "\n"), nil
 }
 
-func preferredKeys(arr []map[string]any) []string {
+func preferredKeys(arr []map[string]any) ([]string, int) {
 	seen := map[string]bool{}
 	for _, row := range arr {
 		for k := range row {
@@ -77,9 +81,9 @@ func preferredKeys(arr []map[string]any) []string {
 	sort.Strings(rest)
 	keys = append(keys, rest...)
 	if len(keys) > 6 {
-		return keys[:6]
+		return keys[:6], len(keys) - 6
 	}
-	return keys
+	return keys, 0
 }
 
 func cell(v any) string {
@@ -92,4 +96,8 @@ func cell(v any) string {
 		raw, _ := json.Marshal(t)
 		return string(raw)
 	}
+}
+
+func displayWidth(value string) int {
+	return utf8.RuneCountInString(value)
 }

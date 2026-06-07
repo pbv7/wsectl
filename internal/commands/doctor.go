@@ -17,7 +17,7 @@ func newDoctorCommand(s *state) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "doctor",
 		Short:   "Diagnose configuration, credentials, and optional API connectivity",
-		Long:    "Run local configuration and credential checks. Pass --api to also perform one authenticated Worksection `me` request.",
+		Long:    "Run local configuration and credential checks. Pass --api to also perform one authenticated read request.",
 		Example: "wsectl doctor\nwsectl doctor --json\nwsectl doctor --api --json",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			deps := doctor.DefaultDependencies()
@@ -27,7 +27,7 @@ func newDoctorCommand(s *state) *cobra.Command {
 					return err
 				}
 				s.writeEnvFallbackDiagnostic(cmd, clientInfo)
-				_, err = clientInfo.client.Call(ctx, "me", nil)
+				_, err = clientInfo.client.Call(ctx, doctorAPIAction(clientInfo.profile.AuthType), nil)
 				return err
 			}
 			report, diagnosisErr := doctor.Run(cmd.Context(), doctor.Options{
@@ -54,8 +54,15 @@ func newDoctorCommand(s *state) *cobra.Command {
 			return diagnosisErr
 		},
 	}
-	cmd.Flags().BoolVar(&checkAPI, "api", false, "Perform one authenticated Worksection me request")
+	cmd.Flags().BoolVar(&checkAPI, "api", false, "Perform one authenticated Worksection read request")
 	return cmd
+}
+
+func doctorAPIAction(authType string) string {
+	if authType == "admin_token" {
+		return "get_users"
+	}
+	return "me"
 }
 
 func writeDoctorText(w io.Writer, report doctor.Report) error {

@@ -139,7 +139,7 @@ wsectl doctor
 wsectl doctor --json
 ```
 
-Add `--api` to perform one authenticated `me` request:
+Add `--api` to perform one authenticated read request:
 
 ```bash
 wsectl doctor --api

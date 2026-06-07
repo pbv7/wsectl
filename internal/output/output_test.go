@@ -148,6 +148,36 @@ func TestWriteYAMLTableAndJQ(t *testing.T) {
 	}
 }
 
+func TestTableWarnsWhenColumnsAreOmitted(t *testing.T) {
+	env := Success("wide", "default", "", json.RawMessage(`[{
+		"id":"1",
+		"name":"Ada",
+		"status":"active",
+		"email":"ada@example.com",
+		"date_added":"2026-06-01",
+		"date_start":"2026-06-02",
+		"date_end":"2026-06-03",
+		"extra":"hidden"
+	}]`))
+	raw, err := Table(env, worksection.ResponseContract{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "Note: table output shows 6 of 8 columns") {
+		t.Fatalf("table did not warn about omitted columns:\n%s", text)
+	}
+	if strings.Contains(text, "DATE_END") || strings.Contains(text, "EXTRA") {
+		t.Fatalf("table rendered columns that should be omitted by the six-column cap:\n%s", text)
+	}
+}
+
+func TestTableDisplayWidthCountsRunes(t *testing.T) {
+	if got := displayWidth("ІТ"); got != 2 {
+		t.Fatalf("display width = %d, want 2", got)
+	}
+}
+
 func TestCompositeContractCountsPrimaryDataPath(t *testing.T) {
 	env := SuccessWithContract("get_costs", "default", "", compositeCostData(), compositeCostContract())
 	if env.Meta.Count != 2 {

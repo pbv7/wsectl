@@ -549,7 +549,7 @@ wsectl docs generate --out docs/command-reference.md
 
 Diagnose configuration, credentials, and optional API connectivity
 
-Run local configuration and credential checks. Pass --api to also perform one authenticated Worksection `me` request.
+Run local configuration and credential checks. Pass --api to also perform one authenticated read request.
 
 **Usage:** `wsectl doctor [flags]`
 

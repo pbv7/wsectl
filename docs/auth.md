@@ -241,4 +241,4 @@ wsectl doctor --api
 wsectl doctor --api --json
 ```
 
-Doctor reports credential presence and OAuth expiry without printing credential values. The live check performs one authenticated `me` request.
+Doctor reports credential presence and OAuth expiry without printing credential values. The live check performs one authenticated read request: `me` for OAuth profiles and `get_users` for admin-token profiles.

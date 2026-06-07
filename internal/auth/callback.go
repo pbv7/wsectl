@@ -15,6 +15,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -37,6 +38,13 @@ type CallbackServer struct {
 	server      *http.Server
 	resultCh    chan string
 	errCh       chan error
+}
+
+type callbackDecision struct {
+	Status  int
+	Message string
+	Code    string
+	Err     error
 }
 
 // ValidateState rejects missing or mismatched OAuth state values.
@@ -89,30 +97,18 @@ func StartOAuthCallback(opts CallbackOptions, expectedState string) (*CallbackSe
 	errCh := make(chan error, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			writeCallbackPage(w, "Unsupported OAuth callback method. You can close this tab.")
+		decision := classifyCallbackRequest(r.Method, r.URL.Query(), expectedState)
+		if decision.Status != http.StatusOK {
+			w.WriteHeader(decision.Status)
+		}
+		writeCallbackPage(w, decision.Message)
+		if decision.Err != nil {
+			sendCallbackError(errCh, decision.Err)
 			return
 		}
-		query := r.URL.Query()
-		if remoteErr := query.Get("error"); remoteErr != "" {
-			sendCallbackError(errCh, fmt.Errorf("oauth authorization failed: %s", remoteErr))
-			writeCallbackPage(w, "Authorization failed. You can close this tab.")
-			return
+		if decision.Code != "" {
+			sendCallbackResult(resultCh, decision.Code)
 		}
-		if err := ValidateState(expectedState, query.Get("state")); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			writeCallbackPage(w, "Invalid OAuth state. You can close this tab.")
-			return
-		}
-		code := query.Get("code")
-		if code == "" {
-			sendCallbackError(errCh, fmt.Errorf("missing oauth code"))
-			writeCallbackPage(w, "Missing OAuth code. You can close this tab.")
-			return
-		}
-		writeCallbackPage(w, "Authorization complete. You can close this tab.")
-		sendCallbackResult(resultCh, code)
 	})
 	server := &http.Server{
 		Handler:           mux,
@@ -129,6 +125,41 @@ func StartOAuthCallback(opts CallbackOptions, expectedState string) (*CallbackSe
 		}
 	}()
 	return &CallbackServer{RedirectURI: redirectURI, server: server, resultCh: resultCh, errCh: errCh}, nil
+}
+
+func classifyCallbackRequest(method string, query url.Values, expectedState string) callbackDecision {
+	if method != http.MethodGet {
+		return callbackDecision{
+			Status:  http.StatusMethodNotAllowed,
+			Message: "Unsupported OAuth callback method. You can close this tab.",
+		}
+	}
+	if remoteErr := query.Get("error"); remoteErr != "" {
+		return callbackDecision{
+			Status:  http.StatusOK,
+			Message: "Authorization failed. You can close this tab.",
+			Err:     fmt.Errorf("oauth authorization failed: %s", remoteErr),
+		}
+	}
+	if err := ValidateState(expectedState, query.Get("state")); err != nil {
+		return callbackDecision{
+			Status:  http.StatusBadRequest,
+			Message: "Invalid OAuth state. You can close this tab.",
+		}
+	}
+	code := query.Get("code")
+	if code == "" {
+		return callbackDecision{
+			Status:  http.StatusOK,
+			Message: "Missing OAuth code. You can close this tab.",
+			Err:     fmt.Errorf("missing oauth code"),
+		}
+	}
+	return callbackDecision{
+		Status:  http.StatusOK,
+		Message: "Authorization complete. You can close this tab.",
+		Code:    code,
+	}
 }
 
 func isLoopbackHost(host string) bool {

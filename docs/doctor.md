@@ -17,7 +17,7 @@ Offline checks cover:
 - Plaintext-store warnings.
 - Rate-limit and timeout validity.
 
-Use `--api` to add one authenticated `me` request:
+Use `--api` to add one authenticated read request. OAuth profiles probe `me`; admin-token profiles probe `get_users` because `me` is OAuth-only in the Worksection action contract:
 
 ```bash
 wsectl doctor --api

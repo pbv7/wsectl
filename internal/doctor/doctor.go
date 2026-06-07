@@ -246,7 +246,7 @@ func checkAPI(ctx context.Context, opts Options, deps Dependencies, report *Repo
 		add(report, StatusFail, "api", err.Error(), apiRemediation(code))
 		return code, true
 	}
-	add(report, StatusOK, "api", "authenticated `me` request succeeded", "")
+	add(report, StatusOK, "api", "authenticated read request succeeded", "")
 	return worksection.CodeGeneral, false
 }
 

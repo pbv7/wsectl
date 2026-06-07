@@ -458,6 +458,17 @@ func TestDoctorTextOutputIncludesChecksAndRemediation(t *testing.T) {
 	}
 }
 
+func TestDoctorAPIActionMatchesAuthMode(t *testing.T) {
+	if got := doctorAPIAction("admin_token"); got != "get_users" {
+		t.Fatalf("admin-token doctor action = %q, want get_users", got)
+	}
+	for _, authType := range []string{"", "oauth2", "unknown"} {
+		if got := doctorAPIAction(authType); got != "me" {
+			t.Fatalf("%q doctor action = %q, want me", authType, got)
+		}
+	}
+}
+
 func TestTaskQueryFilterEscapesQuotes(t *testing.T) {
 	got := taskNameFilter("Bob's invoice")
 	want := "name has 'Bob\\'s invoice'"
