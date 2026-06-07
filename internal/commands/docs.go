@@ -49,17 +49,22 @@ func renderCommandReference(commands []commandInfo) string {
 		fmt.Fprintf(&b, "**Output support:** `%t`\n\n", info.Output)
 		if len(info.Actions) > 0 {
 			fmt.Fprintf(&b, "**Worksection actions:** `%s`\n\n", strings.Join(info.Actions, "`, `"))
+			wroteDetails := false
 			for _, action := range info.Actions {
 				spec, ok := worksection.LookupAction(action)
 				if !ok || spec.Response.Shape == "" {
 					continue
 				}
 				fmt.Fprintf(&b, "- `%s` response shape: `%s`; count path: `%s`.\n", action, spec.Response.Shape, spec.Response.CountPath)
+				wroteDetails = true
 				for _, note := range spec.CompatibilityNotes {
-					fmt.Fprintf(&b, "- `%s` compatibility: %s\n", action, note)
+					writeMarkdownBullet(&b, fmt.Sprintf("`%s` compatibility: %s", action, note))
+					wroteDetails = true
 				}
 			}
-			b.WriteString("\n")
+			if wroteDetails {
+				b.WriteString("\n")
+			}
 		}
 		if len(info.OutputModes) > 0 {
 			fmt.Fprintf(&b, "**Output modes:** `%s`\n\n", strings.Join(info.OutputModes, "`, `"))
@@ -77,10 +82,33 @@ func renderCommandReference(commands []commandInfo) string {
 		if len(info.AgentNotes) > 0 {
 			b.WriteString("**Agent notes:**\n\n")
 			for _, note := range info.AgentNotes {
-				fmt.Fprintf(&b, "- %s\n", note)
+				writeMarkdownBullet(&b, note)
 			}
 			b.WriteString("\n")
 		}
 	}
-	return b.String()
+	return strings.TrimRight(b.String(), "\n") + "\n"
+}
+
+func writeMarkdownBullet(b *strings.Builder, text string) {
+	writeWrappedMarkdownLine(b, "- ", "  ", text, 150)
+}
+
+func writeWrappedMarkdownLine(b *strings.Builder, firstPrefix, nextPrefix, text string, limit int) {
+	prefix := firstPrefix
+	remaining := strings.TrimSpace(text)
+	for {
+		width := limit - len(prefix)
+		if width <= 0 || len(remaining) <= width {
+			fmt.Fprintf(b, "%s%s\n", prefix, remaining)
+			return
+		}
+		cut := strings.LastIndexAny(remaining[:width+1], " \t")
+		if cut <= 0 {
+			cut = width
+		}
+		fmt.Fprintf(b, "%s%s\n", prefix, strings.TrimRight(remaining[:cut], " \t"))
+		remaining = strings.TrimLeft(remaining[cut:], " \t")
+		prefix = nextPrefix
+	}
 }

@@ -9,14 +9,18 @@ Before tagging:
 ```bash
 make check
 make race
-make lint
+make lint-all
 make vuln
 make release-check
 ```
 
+`make lint-all` runs Go linting, Markdown linting, and GitHub Actions workflow linting. Markdown prose is kept under 150 characters per line while
+code blocks, headings, and tables are exempt from the line-length rule.
+
 Run optional live smoke tests with real read-only credentials before the first public release.
 
-`make coverage-check` is a POSIX-shell Makefile target with `COVERAGE_MIN ?= 70.0`. Keep it as a visibility gate until coverage is intentionally raised above the threshold; Windows release validation should use the direct Go test commands from CI.
+`make coverage-check` is a POSIX-shell Makefile target with `COVERAGE_MIN ?= 70.0`. Keep it as a visibility gate until coverage is intentionally
+raised above the threshold; Windows release validation should use the direct Go test commands from CI.
 
 Before tagging, also run one real file download probe against a safe task attachment:
 
@@ -31,7 +35,7 @@ The probe passes when the output file is non-empty, filename or content type loo
 After the repository is initialized with Git, validate local release artifacts:
 
 ```bash
-make snapshot
+make release-snapshot
 ```
 
 Snapshot artifacts are written to `dist/`, which is ignored by Git.

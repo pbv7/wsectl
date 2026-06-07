@@ -7,7 +7,8 @@ Worksection documents these API limits:
 - Some responses are capped at 10,000 records.
 - Long text fields can be trimmed by the server.
 
-`wsectl` defaults to POST-compatible requests with API parameters in the query string and client-side rate limiting. This matches documented/live Worksection behavior, but very long filters can still hit request URL limits. Live probes showed form-encoded API bodies return `invalid JSON`.
+`wsectl` defaults to POST-compatible requests with API parameters in the query string and client-side rate limiting. This matches documented/live
+Worksection behavior, but very long filters can still hit request URL limits. Live probes showed form-encoded API bodies return `invalid JSON`.
 
 `wsectl` surfaces possible truncation in output metadata:
 

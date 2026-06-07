@@ -29,6 +29,8 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make check
+      - run: make lint-md
+      - run: make lint-workflows
       - run: make coverage-check
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6

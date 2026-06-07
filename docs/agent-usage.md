@@ -44,8 +44,9 @@ wsectl tasks search --schema --json
 wsectl doctor --json
 ```
 
-`commands --json` is the authoritative discovery contract. It includes explicit `category`, `actions`, `output_modes`, `agent_notes`, `auth_required`, `read_only`, usage, flags, and examples.
-`api schema ACTION --json` and command `--schema --json` return static, advisory response contracts without calling Worksection. Use them before selecting `--fields` or writing a `--jq` expression for an unfamiliar response.
+`commands --json` is the authoritative discovery contract. It includes explicit `category`, `actions`, `output_modes`, `agent_notes`, `auth_required`,
+`read_only`, usage, flags, and examples. `api schema ACTION --json` and command `--schema --json` return static, advisory response contracts without
+calling Worksection. Use them before selecting `--fields` or writing a `--jq` expression for an unfamiliar response.
 
 ## Compatibility Notes
 
@@ -55,7 +56,8 @@ First-class commands normalize known Worksection quirks. Raw `api call` uses raw
 - `tasks search --query TEXT` sends a Worksection `filter`, not a `search` parameter.
 - `costs --timer true` sends `is_timer=true`.
 - `files images` filters image files client-side.
-- API calls use Worksection's documented query-parameter POST mode. Live probes showed form-encoded API bodies return `invalid JSON`; do not assume form bodies are supported.
+- API calls use Worksection's documented query-parameter POST mode. Live probes showed form-encoded API bodies return `invalid JSON`; do not assume
+  form bodies are supported.
 
 For lower-level calls:
 

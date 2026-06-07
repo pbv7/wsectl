@@ -73,7 +73,8 @@ wsectl profiles remove old-profile
 
 ### Set Credential Variables
 
-`auth login` reads only the secret variable for the active profile type: OAuth2 profiles use `WSECTL_CLIENT_SECRET`, while admin-token profiles use `WSECTL_ADMIN_TOKEN`. This keeps secret values out of command arguments and works across common shells.
+`auth login` reads only the secret variable for the active profile type: OAuth2 profiles use `WSECTL_CLIENT_SECRET`, while admin-token profiles use
+`WSECTL_ADMIN_TOKEN`. This keeps secret values out of command arguments and works across common shells.
 
 sh, bash, and zsh:
 
@@ -115,7 +116,8 @@ wsectl auth login --client-id "$WSECTL_CLIENT_ID"
 wsectl doctor --api
 ```
 
-When `--secret-ref` is omitted, `profiles add` uses `keyring:wsectl/default`. The TOML file stores the account URL, auth type, and secret reference. OAuth tokens, refresh tokens, and client secrets are stored in the OS keychain.
+When `--secret-ref` is omitted, `profiles add` uses `keyring:wsectl/default`. The TOML file stores the account URL, auth type, and secret reference.
+OAuth tokens, refresh tokens, and client secrets are stored in the OS keychain.
 
 ### Multiple Accounts
 
@@ -128,7 +130,8 @@ wsectl --profile agency auth login --client-id "$WSECTL_CLIENT_ID"
 wsectl --profile client auth login --client-id "$WSECTL_CLIENT_ID"
 ```
 
-If each profile uses a different OAuth app, update `WSECTL_CLIENT_ID` and `WSECTL_CLIENT_SECRET` before each OAuth2 `auth login`. Admin-token profiles ignore OAuth client variables.
+If each profile uses a different OAuth app, update `WSECTL_CLIENT_ID` and `WSECTL_CLIENT_SECRET` before each OAuth2 `auth login`. Admin-token profiles
+ignore OAuth client variables.
 
 Run one command against a profile:
 
@@ -177,7 +180,8 @@ wsectl profiles add portable \
 wsectl --profile portable auth login --client-id "$WSECTL_CLIENT_ID"
 ```
 
-The encrypted file is protected by `WSECTL_SECRET_PASSPHRASE`. Keep that passphrase in a password manager or another protected system, not next to the encrypted file.
+The encrypted file is protected by `WSECTL_SECRET_PASSPHRASE`. Keep that passphrase in a password manager or another protected system, not next to the
+encrypted file.
 
 ### Environment-Only CI
 
@@ -211,7 +215,8 @@ wsectl auth status --json
 wsectl doctor
 ```
 
-Change defaults by editing `config.toml` or by using profile commands. `wsectl` writes config files with owner-only permissions and keeps profile order deterministic.
+Change defaults by editing `config.toml` or by using profile commands. `wsectl` writes config files with owner-only permissions and keeps profile
+order deterministic.
 
 Rotate credentials:
 
@@ -249,6 +254,8 @@ wsectl doctor
 wsectl doctor --json
 ```
 
-Doctor validates the config path, parse result, permissions, active profile, account URL, secret reference, credential presence, OAuth expiry, timeout, and rate limit without contacting Worksection. Use `wsectl doctor --api` for a live authenticated check.
+Doctor validates the config path, parse result, permissions, active profile, account URL, secret reference, credential presence, OAuth expiry,
+timeout, and rate limit without contacting Worksection. Use `wsectl doctor --api` for a live authenticated check.
 
-Profile account URLs must be HTTPS Worksection URLs. `secret_ref` must use one of `keyring:`, `env:`, `encrypted-file:`, or `plaintext:`; non-env stores require a target name or path.
+Profile account URLs must be HTTPS Worksection URLs. `secret_ref` must use one of `keyring:`, `env:`, `encrypted-file:`, or `plaintext:`; non-env
+stores require a target name or path.

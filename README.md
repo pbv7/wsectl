@@ -8,13 +8,15 @@
 
 Unofficial command-line client for Worksection.
 
-`wsectl` is a Go CLI for read-only Worksection access. It is built for humans at a terminal and for scripts or coding agents that need stable JSON, predictable exit codes, explicit account profiles, and safe credential handling.
+`wsectl` is a Go CLI for read-only Worksection access. It is built for humans at a terminal and for scripts or coding agents that need stable JSON,
+predictable exit codes, explicit account profiles, and safe credential handling.
 
 This project is not affiliated with, endorsed by, or supported by Worksection.
 
 ## Status
 
-The MVP is read-only by design. Commands that would change Worksection data are recognized and blocked with a clear error. The code is structured so write commands can be added later behind explicit safety decisions.
+The MVP is read-only by design. Commands that would change Worksection data are recognized and blocked with a clear error. The code is structured so
+write commands can be added later behind explicit safety decisions.
 
 ## Start Here For Agents
 
@@ -34,8 +36,9 @@ wsectl api schema get_projects --json
 wsectl doctor --json
 ```
 
-The help JSON includes `guide_format_version`. `commands --json` reports explicit category, Worksection actions, output modes, authentication requirements, read-only status, examples, and agent notes.
-`api schema ACTION --json` reports the static action contract, including parameters, response shape, known fields, conditional `extra` fields, count path, OAuth scopes, and compatibility notes.
+The help JSON includes `guide_format_version`. `commands --json` reports explicit category, Worksection actions, output modes, authentication
+requirements, read-only status, examples, and agent notes. `api schema ACTION --json` reports the static action contract, including parameters,
+response shape, known fields, conditional `extra` fields, count path, OAuth scopes, and compatibility notes.
 
 ## Install
 
@@ -53,7 +56,8 @@ cd wsectl
 go run ./cmd/wsectl
 ```
 
-`go run` is useful for help and development checks. For keyring-backed OAuth login, prefer a stable binary built with `make build` or an installed `wsectl`; temporary `go run` binaries can confuse OS keychain access control on macOS.
+`go run` is useful for help and development checks. For keyring-backed OAuth login, prefer a stable binary built with `make build` or an installed
+`wsectl`; temporary `go run` binaries can confuse OS keychain access control on macOS.
 
 ## Quick Start
 
@@ -68,7 +72,8 @@ wsectl projects list --json
 wsectl tasks search --query "invoice" --json
 ```
 
-`wsectl auth login` starts a temporary local HTTPS callback server, opens the browser, validates OAuth state, exchanges the returned code, and stores tokens in the selected secret store.
+`wsectl auth login` starts a temporary local HTTPS callback server, opens the browser, validates OAuth state, exchanges the returned code, and stores
+tokens in the selected secret store.
 
 For a remote shell or headless session, keep the callback server active and open the URL manually:
 
@@ -87,8 +92,8 @@ wsectl me --json
 
 ## Persistent Desktop Setup
 
-For regular use on a personal workstation, prefer a config profile plus OS keychain secrets instead of exporting tokens every time.
-See [Configuration](docs/configuration.md) for the full desktop, admin-token, encrypted-file, and CI workflows.
+For regular use on a personal workstation, prefer a config profile plus OS keychain secrets instead of exporting tokens every time. See
+[Configuration](docs/configuration.md) for the full desktop, admin-token, encrypted-file, and CI workflows.
 
 ```bash
 wsectl profiles add default \
@@ -104,7 +109,9 @@ wsectl doctor --api
 wsectl me --json
 ```
 
-`profiles add` writes non-secret account settings to `config.toml`. When `--secret-ref` is omitted, the profile uses `keyring:wsectl/PROFILE`, so `auth login` stores OAuth tokens and client credentials in the OS keychain. After this setup, normal commands do not need `WSECTL_ACCESS_TOKEN`, `WSECTL_ACCOUNT_URL`, or other credential environment variables.
+`profiles add` writes non-secret account settings to `config.toml`. When `--secret-ref` is omitted, the profile uses `keyring:wsectl/PROFILE`, so
+`auth login` stores OAuth tokens and client credentials in the OS keychain. After this setup, normal commands do not need `WSECTL_ACCESS_TOKEN`,
+`WSECTL_ACCOUNT_URL`, or other credential environment variables.
 
 Default config locations:
 
@@ -203,7 +210,8 @@ wsectl auth logout
 wsectl profiles remove old-profile
 ```
 
-Use `--config PATH` or `WSECTL_CONFIG` for a non-default config file. Use `WSECTL_PROFILE` or `--profile NAME` to override `current_profile` without editing config.
+Use `--config PATH` or `WSECTL_CONFIG` for a non-default config file. Use `WSECTL_PROFILE` or `--profile NAME` to override `current_profile` without
+editing config.
 
 ## Output For Scripts
 
@@ -217,7 +225,8 @@ wsectl tasks all --json --fields id,name,status --out /tmp/tasks.json
 wsectl tasks search --schema --json
 ```
 
-Do not parse table output in scripts. Table output is for humans and may change to improve readability. JSON envelope fields are intended to stay stable:
+Do not parse table output in scripts. Table output is for humans and may change to improve readability. JSON envelope fields are intended to stay
+stable:
 
 ```json
 {
@@ -238,20 +247,24 @@ Do not parse table output in scripts. Table output is for humans and may change 
 
 Always check `meta.truncated` and `meta.warnings` for large responses.
 
-`--schema --json` on first-class read commands returns the same static action contract without loading config, opening the keychain, or calling Worksection. These contracts are advisory and agent-readable; they are not full JSON Schema and do not guarantee that every field appears in every account.
+`--schema --json` on first-class read commands returns the same static action contract without loading config, opening the keychain, or calling
+Worksection. These contracts are advisory and agent-readable; they are not full JSON Schema and do not guarantee that every field appears in every
+account.
 
 ## Security Model
 
 Secrets are accessed through a `SecretStore` abstraction:
 
-- `keyring`: default OS keychain backend. `wsectl` enables OS-backed keychains and Pass, and intentionally disables the 99designs File and KeyCtl backends.
+- `keyring`: default OS keychain backend. `wsectl` enables OS-backed keychains and Pass, and intentionally disables the 99designs File and KeyCtl
+  backends.
 - `env`: read-only backend for CI and containers.
 - `encrypted-file`: explicit portable fallback protected by `WSECTL_SECRET_PASSPHRASE` with versioned Argon2id/AES-GCM payloads.
 - `plaintext`: explicit opt-in only.
 
 Commands do not print tokens by default. Use environment credentials for ephemeral automation and OS keychain storage for interactive use.
 
-File downloads only forward bearer credentials to HTTPS URLs on the configured Worksection account host. If Worksection returns a cross-host file URL, `wsectl` fails closed with a structured `download_host_mismatch` error instead of leaking credentials.
+File downloads only forward bearer credentials to HTTPS URLs on the configured Worksection account host. If Worksection returns a cross-host file URL,
+`wsectl` fails closed with a structured `download_host_mismatch` error instead of leaking credentials.
 
 ## Worksection API Limits
 
@@ -262,18 +275,23 @@ Worksection documents these API constraints:
 - Some endpoints can return at most 10,000 records.
 - Some long text fields can be shortened by the server.
 
-`wsectl` uses Worksection's documented/examples-compatible `POST` requests with API parameters in the query string and enforces client-side rate limiting by default, but it cannot remove server-side limits. Very long filters can still hit request URL limits.
+`wsectl` uses Worksection's documented/examples-compatible `POST` requests with API parameters in the query string and enforces client-side rate
+limiting by default, but it cannot remove server-side limits. Very long filters can still hit request URL limits.
 
 ## API Compatibility Notes
 
-Official Worksection web docs, official Postman collections, and live API behavior can disagree. `wsectl` treats Postman/live behavior as authoritative for wire behavior and documents known normalizations.
+Official Worksection web docs, official Postman collections, and live API behavior can disagree. `wsectl` treats Postman/live behavior as
+authoritative for wire behavior and documents known normalizations.
 
-- First-class commands may expose human-readable values while sending Worksection's raw API value. For example, `wsectl projects list --status archived` sends `filter=archive`.
-- Low-level `api call` uses raw API parameter names and values. For archived projects, use `wsectl api call get_projects --param filter=archive --json`.
+- First-class commands may expose human-readable values while sending Worksection's raw API value. For example,
+  `wsectl projects list --status archived` sends `filter=archive`.
+- Low-level `api call` uses raw API parameter names and values. For archived projects, use
+  `wsectl api call get_projects --param filter=archive --json`.
 - `wsectl tasks search --query TEXT` sends an escaped Worksection `filter`, not an undocumented `search` parameter.
 - `wsectl costs ... --timer true` sends `is_timer=true`.
 - `wsectl files images` filters client-side after `get_files`.
-- Live probes showed query-parameter POST works, JSON request bodies work for selected OAuth API reads, and `application/x-www-form-urlencoded` API bodies return `invalid JSON`. This build does not use form-encoded API bodies.
+- Live probes showed query-parameter POST works, JSON request bodies work for selected OAuth API reads, and `application/x-www-form-urlencoded` API
+  bodies return `invalid JSON`. This build does not use form-encoded API bodies.
 
 ## Runtime Help
 
@@ -292,7 +310,8 @@ wsectl api actions --json
 
 ## Shell Completion
 
-Completion scripts are generated by Cobra from the current command tree, so they stay aligned with new commands, flags, and enum completions when the binary is updated.
+Completion scripts are generated by Cobra from the current command tree, so they stay aligned with new commands, flags, and enum completions when the
+binary is updated.
 
 ```bash
 wsectl completion bash
@@ -328,17 +347,26 @@ wsectl completion powershell > wsectl.ps1
 ## Development
 
 ```bash
+make version
 make check
 make ci
+make lint-md
+make lint-workflows
 make coverage
 make coverage-check
 make coverage-html
 make build
+make run ARGS="help agent"
+make build-all
 make docs
 make clean
 ```
 
-`make coverage-check` uses POSIX shell tools and is intended for Unix-like developer environments. Windows CI runs direct Go commands for cross-platform coverage of the source.
+`make build` and `make install` inject version, commit, and build date into `wsectl version`. `make build-all` creates local Linux, macOS, and
+Windows development binaries under `dist/`; release archives are still produced by GoReleaser.
+
+`make coverage-check` uses POSIX shell tools and is intended for Unix-like developer environments. Windows CI runs direct Go commands for
+cross-platform coverage of the source.
 
 Optional live smoke tests are disabled by default:
 

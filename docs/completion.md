@@ -1,6 +1,7 @@
 # Shell Completion
 
-`wsectl` uses Cobra's generated shell completion support. Completion scripts are generated from the command tree in the binary, so they automatically include new commands, flags, and registered enum completions after `wsectl` is updated.
+`wsectl` uses Cobra's generated shell completion support. Completion scripts are generated from the command tree in the binary, so they automatically
+include new commands, flags, and registered enum completions after `wsectl` is updated.
 
 Supported shells:
 

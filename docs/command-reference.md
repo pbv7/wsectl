@@ -98,7 +98,6 @@ Call a read-only Worksection API action
 
 **Worksection actions:** `dynamic`
 
-
 **Output modes:** `auto`, `json`, `yaml`, `table`, `ndjson`, `raw`
 
 **Command flags:**
@@ -1556,7 +1555,8 @@ Get current user timer
 **Worksection actions:** `get_my_timer`
 
 - `get_my_timer` response shape: `object`; count path: `data`.
-- `get_my_timer` compatibility: Official docs show get_my_timer as an OAuth-only current-user timer response; the no-active-timer shape can vary by account state.
+- `get_my_timer` compatibility: Official docs show get_my_timer as an OAuth-only current-user timer response; the no-active-timer shape can vary by
+  account state.
 
 **Output modes:** `auto`, `json`, `yaml`, `table`, `ndjson`, `raw`
 
@@ -1779,7 +1779,8 @@ List webhooks
 **Worksection actions:** `get_webhooks`
 
 - `get_webhooks` response shape: `array`; count path: `data`.
-- `get_webhooks` compatibility: Webhook access may require an administrative token or an explicit administrative OAuth scope depending on the Worksection app settings.
+- `get_webhooks` compatibility: Webhook access may require an administrative token or an explicit administrative OAuth scope depending on the
+  Worksection app settings.
 
 **Output modes:** `auto`, `json`, `yaml`, `table`, `ndjson`, `raw`
 
@@ -1792,4 +1793,3 @@ wsectl webhooks list --json
 **Agent notes:**
 
 - Prefer --json or --ndjson for automation.
-

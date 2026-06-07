@@ -1,6 +1,7 @@
 # Manual
 
-`wsectl` is an unofficial command-line client for Worksection. It focuses on read-only access, stable output, explicit profiles, and credential handling that works across desktop, CI, and headless environments.
+`wsectl` is an unofficial command-line client for Worksection. It focuses on read-only access, stable output, explicit profiles, and credential
+handling that works across desktop, CI, and headless environments.
 
 This project is not affiliated with Worksection.
 
@@ -63,8 +64,9 @@ wsectl profiles use default
 wsectl --profile admin webhooks list --json
 ```
 
-For persistent PC usage, profiles are the normal configuration mechanism. `profiles add` writes non-secret metadata to `config.toml`; `auth login` writes credentials to the profile's secret store. When `--secret-ref` is omitted, the profile uses `keyring:wsectl/PROFILE`.
-See [Configuration](configuration.md) for the full desktop, admin-token, encrypted-file, and CI setup workflows.
+For persistent PC usage, profiles are the normal configuration mechanism. `profiles add` writes non-secret metadata to `config.toml`; `auth login`
+writes credentials to the profile's secret store. When `--secret-ref` is omitted, the profile uses `keyring:wsectl/PROFILE`. See
+[Configuration](configuration.md) for the full desktop, admin-token, encrypted-file, and CI setup workflows.
 
 Useful management commands:
 
@@ -77,7 +79,8 @@ wsectl auth logout
 wsectl profiles remove old-profile
 ```
 
-Use `--profile NAME` for one command, `WSECTL_PROFILE=NAME` for a shell/session override, or `profiles use NAME` to change the default profile in config.
+Use `--profile NAME` for one command, `WSECTL_PROFILE=NAME` for a shell/session override, or `profiles use NAME` to change the default profile in
+config.
 
 Portable encrypted-file setup:
 
@@ -126,9 +129,12 @@ Known mutation actions are blocked even through `api call`.
 wsectl tasks search --schema --json
 ```
 
-These contracts include known fields, conditional `extra` fields, response shape, count path, and compatibility notes. They are advisory, not full JSON Schema.
+These contracts include known fields, conditional `extra` fields, response shape, count path, and compatibility notes. They are advisory, not full
+JSON Schema.
 
-First-class commands normalize known Worksection API quirks. For example, `projects list --status archived` sends `filter=archive`, `tasks search --query TEXT` sends a Worksection `filter`, `costs --timer` sends `is_timer`, and `files images` filters client-side. Raw `api call` uses raw API parameter names and values.
+First-class commands normalize known Worksection API quirks. For example, `projects list --status archived` sends `filter=archive`,
+`tasks search --query TEXT` sends a Worksection `filter`, `costs --timer` sends `is_timer`, and `files images` filters client-side. Raw `api call`
+uses raw API parameter names and values.
 
 ## Diagnostics
 
@@ -193,11 +199,14 @@ wsectl completion fish
 wsectl completion powershell
 ```
 
-The generated scripts come from Cobra's live command tree. After upgrading `wsectl`, regenerate the script for your shell to pick up new commands, flags, and enum completions.
+The generated scripts come from Cobra's live command tree. After upgrading `wsectl`, regenerate the script for your shell to pick up new commands,
+flags, and enum completions.
 
 ## Limits And Completeness
 
-Worksection documents a 1 request/second API limit, an 8 kB GET URL limit, and a 10,000-record cap for some endpoints. `wsectl` sends API calls with POST and rate-limits requests, but it keeps API parameters in the query string to match documented/live behavior, so very long filters can still hit request URL limits. Large responses include metadata:
+Worksection documents a 1 request/second API limit, an 8 kB GET URL limit, and a 10,000-record cap for some endpoints. `wsectl` sends API calls with
+POST and rate-limits requests, but it keeps API parameters in the query string to match documented/live behavior, so very long filters can still hit
+request URL limits. Large responses include metadata:
 
 ```json
 {

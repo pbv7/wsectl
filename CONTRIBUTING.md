@@ -15,6 +15,8 @@ For broader verification:
 ```bash
 make race
 make lint
+make lint-md
+make lint-workflows
 make vuln
 make coverage
 make release-check
@@ -22,11 +24,12 @@ make release-check
 
 `make coverage` may need loopback access because some tests use `httptest.Server`.
 
-`make lint` intentionally lints production Go files only for now. Local Go
-1.26.4 with golangci-lint 2.12.2 can fail while loading test packages with
-`no go files to analyze`, even though `go test` and `go list` succeed. Tests
-are still compiled and run by `make check` and `make race`; re-enable
+`make lint` intentionally lints production Go files only for now. Local Go 1.26.4 with golangci-lint 2.12.2 can fail while loading test packages with
+`no go files to analyze`, even though `go test` and `go list` succeed. Tests are still compiled and run by `make check` and `make race`; re-enable
 golangci-lint test-file linting after the toolchain issue is resolved.
+
+`make lint-md` uses markdownlint-cli2 with a 150-character prose line limit. The rule is relaxed for code blocks, headings, and tables, but prose
+warnings are fixed instead of disabled. `make lint-workflows` runs actionlint against GitHub Actions workflow files.
 
 ## Documentation
 
@@ -36,7 +39,8 @@ Command reference docs are generated from command metadata:
 make docs
 ```
 
-Use `make docs-check` or `make check` to verify checked-in command docs are current. Embedded runtime docs intentionally mirror selected files in `docs/`; tests fail if those copies drift.
+Use `make docs-check` or `make check` to verify checked-in command docs are current. Embedded runtime docs intentionally mirror selected files in
+`docs/`; tests fail if those copies drift.
 
 ## Live Tests
 

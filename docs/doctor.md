@@ -17,14 +17,16 @@ Offline checks cover:
 - Plaintext-store warnings.
 - Rate-limit and timeout validity.
 
-Use `--api` to add one authenticated read request. OAuth profiles probe `me`; admin-token profiles probe `get_users` because `me` is OAuth-only in the Worksection action contract:
+Use `--api` to add one authenticated read request. OAuth profiles probe `me`; admin-token profiles probe `get_users` because `me` is OAuth-only in the
+Worksection action contract:
 
 ```bash
 wsectl doctor --api
 wsectl doctor --api --json
 ```
 
-Text output uses `[ok]`, `[warn]`, and `[fail]` plus remediation commands. JSON includes the full report in `data` and an error body when failing checks make the setup unhealthy. Machine-readable doctor output is a single parseable envelope and does not append an extra plaintext error line.
+Text output uses `[ok]`, `[warn]`, and `[fail]` plus remediation commands. JSON includes the full report in `data` and an error body when failing
+checks make the setup unhealthy. Machine-readable doctor output is a single parseable envelope and does not append an extra plaintext error line.
 
 Exit classifications use the normal CLI contract:
 

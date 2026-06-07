@@ -47,7 +47,9 @@ Fields:
 - `meta.truncated`: true when the result may have hit a known API cap.
 - `meta.warnings`: non-fatal completeness or behavior warnings.
 
-Composite Worksection responses preserve their documented object fields instead of dropping everything except `data`. JSON and YAML keep aggregate siblings such as `total`, `projects`, and `tasks`. Row-oriented modes (`--ndjson`, table output, `--limit`, and `--fields`) use the static contract's `data_path` and `count_path` so list commands such as `costs list` still operate on primary rows.
+Composite Worksection responses preserve their documented object fields instead of dropping everything except `data`. JSON and YAML keep aggregate
+siblings such as `total`, `projects`, and `tasks`. Row-oriented modes (`--ndjson`, table output, `--limit`, and `--fields`) use the static contract's
+`data_path` and `count_path` so list commands such as `costs list` still operate on primary rows.
 
 ## Static Response Contracts
 
@@ -58,7 +60,8 @@ wsectl api schema get_tasks --json
 wsectl tasks search --schema --json
 ```
 
-The contract includes `response_shape`, `data_path`, `item_shape`, `conditional_fields`, `count_path`, and notes. It is advisory and versioned, not a full JSON Schema.
+The contract includes `response_shape`, `data_path`, `item_shape`, `conditional_fields`, `count_path`, and notes. It is advisory and versioned, not a
+full JSON Schema.
 
 ## Error Envelope
 
@@ -80,7 +83,8 @@ The contract includes `response_shape`, `data_path`, `item_shape`, `conditional_
 
 Error codes are stable strings intended for automation.
 
-When a machine-readable mode is selected, command setup failures such as invalid config, missing profile, missing credentials, and `doctor` failures also use this envelope. They do not append an extra plaintext error line.
+When a machine-readable mode is selected, command setup failures such as invalid config, missing profile, missing credentials, and `doctor` failures
+also use this envelope. They do not append an extra plaintext error line.
 
 ## NDJSON
 
@@ -94,7 +98,9 @@ Use this when downstream tools process one record at a time.
 
 ## Raw
 
-`--raw` prints the exact Worksection response body for API calls. It skips the `wsectl` envelope and is useful for debugging schema changes. Use `--raw --out FILE` for large raw responses. If Worksection returns an API error inside an HTTP 200 JSON body, raw mode still prints or writes the exact body and exits with the Worksection API error code.
+`--raw` prints the exact Worksection response body for API calls. It skips the `wsectl` envelope and is useful for debugging schema changes. Use
+`--raw --out FILE` for large raw responses. If Worksection returns an API error inside an HTTP 200 JSON body, raw mode still prints or writes the
+exact body and exits with the Worksection API error code.
 
 ## Field Projection
 
@@ -103,7 +109,8 @@ wsectl projects list --json --fields id,name,status
 wsectl tasks search --json --fields id,name,project.name
 ```
 
-`--fields` supports dotted paths and keeps warnings in `meta.warnings` when requested fields are missing or unknown to the static action contract. Use `--jq` for richer transforms:
+`--fields` supports dotted paths and keeps warnings in `meta.warnings` when requested fields are missing or unknown to the static action contract. Use
+`--jq` for richer transforms:
 
 ```bash
 wsectl projects list --json --jq '.data[] | {id, name}'
@@ -115,7 +122,8 @@ wsectl projects list --json --jq '.data[] | {id, name}'
 wsectl tasks all --json --limit 100
 ```
 
-`--limit` slices array output client-side after the API response is received. It does not reduce Worksection server work and adds a warning when applied.
+`--limit` slices array output client-side after the API response is received. It does not reduce Worksection server work and adds a warning when
+applied.
 
 ## Exit Codes
 

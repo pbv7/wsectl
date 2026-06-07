@@ -10,18 +10,22 @@ This project is not affiliated with Worksection. Users are responsible for grant
 
 Secret backends:
 
-- `keyring`: default. Uses OS-backed keychains or Pass through `github.com/99designs/keyring`; the library's File and KeyCtl backends are intentionally disabled.
+- `keyring`: default. Uses OS-backed keychains or Pass through `github.com/99designs/keyring`; the library's File and KeyCtl backends are
+  intentionally disabled.
 - `env`: read-only. Intended for CI, containers, and ephemeral automation.
 - `encrypted-file`: explicit opt-in. Requires `WSECTL_SECRET_PASSPHRASE` and writes versioned Argon2id/AES-GCM payloads.
-- `plaintext`: explicit opt-in only. Intended for controlled testing, not normal use. Human-mode login warns on stderr before writing plaintext secrets.
+- `plaintext`: explicit opt-in only. Intended for controlled testing, not normal use. Human-mode login warns on stderr before writing plaintext
+  secrets.
 
 Tokens are not stored in `config.toml`. Profiles contain a `secret_ref`, not the secret itself.
 
 ## Token Output
 
-Commands do not print tokens by default. Avoid `--debug` in shared logs. Any future command that exposes token material should require an explicit dangerous flag.
+Commands do not print tokens by default. Avoid `--debug` in shared logs. Any future command that exposes token material should require an explicit
+dangerous flag.
 
-Downloads forward bearer credentials only to HTTPS URLs whose host matches the configured Worksection account host after normalization. Cross-host or insecure file URLs are blocked with structured error details instead of being retried unauthenticated.
+Downloads forward bearer credentials only to HTTPS URLs whose host matches the configured Worksection account host after normalization. Cross-host or
+insecure file URLs are blocked with structured error details instead of being retried unauthenticated.
 
 ## OAuth Callback
 
@@ -34,7 +38,8 @@ Browser login uses a temporary local HTTPS server. The server:
 - Rejects unrelated invalid-state requests without ending the login attempt.
 - Exits after receiving a valid callback or when the login timeout/context is canceled.
 
-Self-signed localhost certificates are generated for convenience. Use `--callback-cert` and `--callback-key` if your environment requires a pre-trusted certificate.
+Self-signed localhost certificates are generated for convenience. Use `--callback-cert` and `--callback-key` if your environment requires a
+pre-trusted certificate.
 
 ## Read-Only Safety
 

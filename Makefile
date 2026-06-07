@@ -1,20 +1,33 @@
-BIN ?= dist/wsectl
+BINARY ?= wsectl
+MODULE ?= github.com/pbv7/wsectl
+BIN_DIR ?= dist
+BIN ?= $(BIN_DIR)/$(BINARY)
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.1.0-dev")
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+LDFLAGS ?= -ldflags "-s -w -X $(MODULE)/internal/app.Version=$(VERSION) -X $(MODULE)/internal/app.Commit=$(COMMIT) -X $(MODULE)/internal/app.Date=$(DATE)"
 COVERAGE_DIR ?= coverage
 COVERAGE_OUT ?= $(COVERAGE_DIR)/coverage.out
 COVERAGE_MIN ?= 70.0
 GOLANGCI_LINT_CACHE ?= $(CURDIR)/.cache/golangci-lint
+MARKDOWNLINT_CLI2_VERSION ?= 0.22.1
+ACTIONLINT_VERSION ?= v1.7.8
 
-.PHONY: check ci tidy tidy-check test race vet fmt fmt-check docs docs-check lint vuln build install coverage coverage-check coverage-html live-test release-check snapshot clean
+.PHONY: check ci tidy tidy-check deps test race vet fmt fmt-check docs docs-check lint lint-md lint-workflows lint-all vuln build build-linux build-darwin build-windows build-all run install version coverage coverage-check coverage-html live-test release release-check snapshot release-snapshot clean
 
 check: fmt-check tidy-check vet docs-check test
 
-ci: check race lint vuln release-check
+ci: check race lint-all vuln release-check
 
 tidy:
 	go mod tidy
 
 tidy-check:
 	go mod tidy -diff
+
+deps:
+	go mod download
+	go mod tidy
 
 fmt:
 	gofmt -w cmd internal
@@ -33,10 +46,35 @@ race:
 
 build:
 	mkdir -p $(dir $(BIN))
-	go build -o $(BIN) ./cmd/wsectl
+	go build $(LDFLAGS) -o $(BIN) ./cmd/wsectl
+
+build-linux:
+	mkdir -p $(BIN_DIR)
+	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BIN_DIR)/$(BINARY)-linux-amd64 ./cmd/wsectl
+	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(BIN_DIR)/$(BINARY)-linux-arm64 ./cmd/wsectl
+
+build-darwin:
+	mkdir -p $(BIN_DIR)
+	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BIN_DIR)/$(BINARY)-darwin-amd64 ./cmd/wsectl
+	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BIN_DIR)/$(BINARY)-darwin-arm64 ./cmd/wsectl
+
+build-windows:
+	mkdir -p $(BIN_DIR)
+	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BIN_DIR)/$(BINARY)-windows-amd64.exe ./cmd/wsectl
+	GOOS=windows GOARCH=arm64 go build $(LDFLAGS) -o $(BIN_DIR)/$(BINARY)-windows-arm64.exe ./cmd/wsectl
+
+build-all: build-linux build-darwin build-windows
+
+run: build
+	$(BIN) $(ARGS)
 
 install:
-	go install ./cmd/wsectl
+	go install $(LDFLAGS) ./cmd/wsectl
+
+version:
+	@echo "VERSION=$(VERSION)"
+	@echo "COMMIT=$(COMMIT)"
+	@echo "DATE=$(DATE)"
 
 docs:
 	go run ./cmd/wsectl docs generate --out docs/command-reference.md
@@ -46,6 +84,14 @@ docs-check:
 
 lint:
 	GOLANGCI_LINT_CACHE=$(GOLANGCI_LINT_CACHE) golangci-lint run
+
+lint-md:
+	npx --yes markdownlint-cli2@$(MARKDOWNLINT_CLI2_VERSION) "README.md" "CONTRIBUTING.md" "docs/**/*.md"
+
+lint-workflows:
+	go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) .github/workflows/*.yml
+
+lint-all: lint lint-workflows lint-md
 
 vuln:
 	govulncheck ./...
@@ -70,6 +116,11 @@ release-check:
 
 snapshot:
 	goreleaser release --snapshot --clean
+
+release-snapshot: snapshot
+
+release:
+	goreleaser release --clean
 
 clean:
 	rm -rf dist $(COVERAGE_DIR) .cache .tmp

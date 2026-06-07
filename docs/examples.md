@@ -41,4 +41,3 @@ wsectl api actions --json
 wsectl api schema get_users_schedule --json
 wsectl api call get_users_schedule --param datestart=01.05.2026 --param dateend=31.05.2026 --json
 ```
-
