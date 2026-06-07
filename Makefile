@@ -12,7 +12,7 @@ COVERAGE_MIN ?= 70.0
 GOLANGCI_LINT_CACHE ?= $(CURDIR)/.cache/golangci-lint
 NODE_MODULES_LOCK ?= node_modules/.package-lock.json
 
-.PHONY: check ci tidy tidy-check deps test race vet fmt fmt-check docs docs-check lint lint-md lint-workflows lint-all vuln build build-linux build-darwin build-windows build-all run install version coverage coverage-check coverage-html live-test release release-check snapshot release-snapshot clean
+.PHONY: check ci tidy tidy-check deps test race vet fmt fmt-check docs docs-check lint lint-md lint-workflows lint-all vuln build build-linux build-darwin build-windows build-all run install version coverage coverage-check coverage-html live-test live-probe release release-check snapshot release-snapshot clean
 
 check: fmt-check tidy-check vet docs-check test
 
@@ -114,6 +114,9 @@ coverage-html: coverage
 
 live-test:
 	go test ./internal/worksection -run LiveSmoke -count=1
+
+live-probe: build
+	WSECTL=$(BIN) bash scripts/live-probe.sh
 
 release-check:
 	@if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then echo "Skipping goreleaser check: not a git repository"; elif ! git remote get-url origin >/dev/null 2>&1; then echo "Skipping goreleaser check: no origin remote configured"; else goreleaser check; fi

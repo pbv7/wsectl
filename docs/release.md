@@ -23,13 +23,24 @@ Run optional live smoke tests with real read-only credentials before the first p
 `make coverage-check` is a POSIX-shell Makefile target with `COVERAGE_MIN ?= 70.0`. Keep it as a visibility gate until coverage is intentionally
 raised above the threshold; Windows release validation should use the direct Go test commands from CI.
 
-Before tagging, also run one real file download probe against a safe task attachment:
+Before tagging, run the end-to-end live probe against a real read-only account:
 
 ```bash
-wsectl files download FILE_ID --out /tmp/wsectl-probe.bin
+make live-probe
 ```
 
-The probe passes when the output file is non-empty, filename or content type looks correct, and no blocked-host error is returned.
+The probe uses whatever auth your normal `wsectl` commands use, so a profile previously set up with `wsectl auth login`
+is sufficient. For one-shot runs without a profile, export `WSECTL_ACCOUNT_URL` plus `WSECTL_ACCESS_TOKEN`
+(or `WSECTL_ADMIN_TOKEN`) before running.
+
+`make live-probe` runs `scripts/live-probe.sh`, which exercises the binary end-to-end: doctor, identity, projects, tasks, comments,
+file listing, file download, output formats (`--json`, `--ndjson`, `--table`, `--fields`, `--limit`, `--schema`), low-level
+`api call`, and the exit-code contract for negative cases. The script self-bootstraps IDs from `projects list` and `tasks list`;
+override with `WSECTL_PROBE_PROJECT`, `WSECTL_PROBE_TASK`, or `WSECTL_PROBE_FILE` if you want to pin specific resources.
+Set `WSECTL=./dist/wsectl` (or any built binary path) to verify release artifacts instead of `go run`.
+
+The probe specifically verifies the same-host download policy: a successful `files download` confirms bearer credentials
+reached the configured Worksection account without leaking cross-host.
 
 ## Snapshot Build
 
