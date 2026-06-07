@@ -671,6 +671,56 @@ func TestAuthLoginAdminTokenStdinStoresSecretWithoutPrintingIt(t *testing.T) {
 	}
 }
 
+func TestAuthStatusAndLogoutPlaintextProfile(t *testing.T) {
+	secretPath := writePlaintextProfileConfig(t, "oauth2")
+	if _, err := execute("auth", "login", "--access-token", "access-token-must-not-print", "--json"); err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := execute("auth", "status", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(status, "access-token-must-not-print") {
+		t.Fatalf("auth status exposed access token:\n%s", status)
+	}
+	var statusEnv struct {
+		Status string `json:"status"`
+		Data   struct {
+			Authenticated bool   `json:"authenticated"`
+			SecretRef     string `json:"secret_ref"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(status), &statusEnv); err != nil {
+		t.Fatalf("invalid auth status json: %v\n%s", err, status)
+	}
+	if statusEnv.Status != "ok" || !statusEnv.Data.Authenticated || !strings.HasPrefix(statusEnv.Data.SecretRef, "plaintext:") {
+		t.Fatalf("unexpected auth status envelope: %#v", statusEnv)
+	}
+
+	logout, err := execute("auth", "logout", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(logout, "access-token-must-not-print") {
+		t.Fatalf("auth logout exposed access token:\n%s", logout)
+	}
+	if _, err := os.Stat(secretPath); !os.IsNotExist(err) {
+		t.Fatalf("logout should delete plaintext secret, stat err=%v", err)
+	}
+
+	status, err = execute("auth", "status", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(status), &statusEnv); err != nil {
+		t.Fatalf("invalid post-logout auth status json: %v\n%s", err, status)
+	}
+	if statusEnv.Data.Authenticated {
+		t.Fatalf("post-logout auth status still authenticated: %#v", statusEnv)
+	}
+}
+
 func TestAuthLoginPlaintextWarnsOnlyInHumanOutput(t *testing.T) {
 	writePlaintextProfileConfig(t, "oauth2")
 	out, err := execute("auth", "login", "--access-token", "access")
@@ -902,6 +952,53 @@ func TestStoreLoginSecretRequiresReadableSecret(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "stored credentials could not be read back") || strings.Contains(err.Error(), "access") {
 		t.Fatalf("unexpected store verification error: %v", err)
+	}
+}
+
+func TestProfilesCRUDRoundTrip(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	t.Setenv("WSECTL_CONFIG", configPath)
+
+	if _, err := execute("profiles", "add", "default", "--account-url", "https://company.worksection.com", "--auth-type", "oauth2", "--secret-ref", "env:"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := execute("profiles", "add", "admin", "--account-url", "https://admin.worksection.com", "--auth-type", "admin_token", "--secret-ref", "plaintext:/tmp/wsectl-admin.json"); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := execute("profiles", "list", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(list, `"default"`) || !strings.Contains(list, `"admin"`) {
+		t.Fatalf("profiles list missing expected profiles:\n%s", list)
+	}
+
+	show, err := execute("profiles", "show", "admin", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(show, `"AuthType": "admin_token"`) || !strings.Contains(show, "https://admin.worksection.com") {
+		t.Fatalf("profiles show returned unexpected output:\n%s", show)
+	}
+
+	if _, err := execute("profiles", "use", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `current_profile = "admin"`) {
+		t.Fatalf("profiles use did not persist active profile:\n%s", raw)
+	}
+
+	if _, err := execute("profiles", "remove", "default"); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := execute("profiles", "show", "default", "--json")
+	if err == nil || (!strings.Contains(removed, `profile \"default\" not found`) && !strings.Contains(err.Error(), `profile "default" not found`)) {
+		t.Fatalf("profiles show for removed profile should fail, err=%v out=%s", err, removed)
 	}
 }
 

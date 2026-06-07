@@ -90,6 +90,37 @@ func TestPlaintextStoreProducesWarning(t *testing.T) {
 	assertCheck(t, report, "plaintext_store", StatusWarn)
 }
 
+func TestAdminTokenProfileSkipsOAuthExpiryChecks(t *testing.T) {
+	cfg := testConfig("env:")
+	profile := cfg.Profiles["default"]
+	profile.AuthType = "admin_token"
+	cfg.Profiles["default"] = profile
+	secret := auth.SecretBundle{
+		AdminToken:    "admin-secret",
+		AccessToken:   "",
+		AccessExpires: fixedNow().Add(-time.Hour),
+	}
+	report, err := Run(context.Background(), Options{}, dependenciesFor(cfg, secret))
+	if err != nil || !report.Healthy {
+		t.Fatalf("admin token profile should be healthy without OAuth expiry checks: report=%#v err=%v", report, err)
+	}
+	assertCheck(t, report, "auth_type", StatusOK)
+	assertCheck(t, report, "credentials", StatusOK)
+	if hasCheck(report, "token_expiry") {
+		t.Fatalf("admin token profile should not emit token_expiry check: %#v", report.Checks)
+	}
+}
+
+func TestInvalidAccountURLIsUsageFailure(t *testing.T) {
+	cfg := testConfig("env:")
+	profile := cfg.Profiles["default"]
+	profile.AccountURL = "http://company.worksection.com"
+	cfg.Profiles["default"] = profile
+	report, err := Run(context.Background(), Options{}, dependenciesFor(cfg, validSecret()))
+	assertExitCode(t, err, 2)
+	assertCheck(t, report, "account_url", StatusFail)
+}
+
 func TestExistingUnusualProfileNameWarnsButDoesNotFail(t *testing.T) {
 	cfg := testConfig("env:")
 	cfg.Profiles["client.acme"] = cfg.Profiles["default"]
@@ -231,6 +262,15 @@ func assertCheck(t *testing.T, report Report, name string, status Status) {
 		}
 	}
 	t.Fatalf("missing check %q in %#v", name, report.Checks)
+}
+
+func hasCheck(report Report, name string) bool {
+	for _, check := range report.Checks {
+		if check.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func assertExitCode(t *testing.T, err error, want int) {

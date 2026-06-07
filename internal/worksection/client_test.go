@@ -2,6 +2,7 @@ package worksection
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -138,6 +139,74 @@ func TestClientCallClassifiesHTTP200APIError(t *testing.T) {
 	wsErr, ok := err.(*Error)
 	if !ok || wsErr.Code != CodeAPI || !strings.Contains(wsErr.Message, "invalid JSON") {
 		t.Fatalf("error = %#v", err)
+	}
+}
+
+func TestResponseErrorMessageVariants(t *testing.T) {
+	tests := []struct {
+		name string
+		resp *Response
+		want string
+	}{
+		{
+			name: "error string",
+			resp: &Response{Error: json.RawMessage(`"plain error"`)},
+			want: "plain error",
+		},
+		{
+			name: "error object message",
+			resp: &Response{Error: json.RawMessage(`{"message":"object error"}`)},
+			want: "object error",
+		},
+		{
+			name: "raw message details",
+			resp: &Response{Raw: json.RawMessage(`{"message":"outer","message_details":{"message":"inner"}}`)},
+			want: "outer: inner",
+		},
+		{
+			name: "raw nested error",
+			resp: &Response{Raw: json.RawMessage(`{"error":{"message":"nested error"}}`)},
+			want: "nested error",
+		},
+		{
+			name: "raw fallback",
+			resp: &Response{Raw: json.RawMessage(`not-json`)},
+			want: "not-json",
+		},
+		{
+			name: "empty fallback",
+			resp: &Response{},
+			want: "Worksection API error",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ResponseErrorMessage(tt.resp); got != tt.want {
+				t.Fatalf("ResponseErrorMessage = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWorksectionErrorExitCodeContract(t *testing.T) {
+	tests := map[ErrorCode]int{
+		CodeUsage:         2,
+		CodeAuth:          3,
+		CodeAuthorization: 4,
+		CodeNetwork:       5,
+		CodeAPI:           6,
+		CodeRateLimited:   7,
+		CodeTruncated:     8,
+		CodeGeneral:       1,
+	}
+	for code, want := range tests {
+		if got := (&Error{Code: code, Message: string(code)}).ExitCode(); got != want {
+			t.Fatalf("%s exit code = %d, want %d", code, got, want)
+		}
+	}
+	var nilErr *Error
+	if nilErr.Error() != "" || nilErr.ExitCode() != 0 {
+		t.Fatalf("nil error contract changed: message=%q exit=%d", nilErr.Error(), nilErr.ExitCode())
 	}
 }
 

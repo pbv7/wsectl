@@ -356,6 +356,53 @@ func TestExchangeCode(t *testing.T) {
 	}
 }
 
+func TestExchangeCodeHTTPErrorRedactsOAuthSecrets(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error_description":"client_secret rejected: secret-value-must-not-leak"}`)),
+		}, nil
+	})}
+	_, err := ExchangeCode(context.Background(), client, "id", "secret-value-must-not-leak", "code", "https://localhost:33443/callback")
+	if err == nil {
+		t.Fatal("expected exchange error")
+	}
+	text := err.Error()
+	for _, forbidden := range []string{"client_secret", "secret-value-must-not-leak"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("oauth error leaked %q: %s", forbidden, text)
+		}
+	}
+	if !strings.Contains(text, "[REDACTED]") {
+		t.Fatalf("oauth error did not show redaction marker: %s", text)
+	}
+}
+
+func TestExchangeCodeRequiresTokensInResponse(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"access-only"}`)),
+		}, nil
+	})}
+	_, err := ExchangeCode(context.Background(), client, "id", "secret", "code", "https://localhost:33443/callback")
+	if err == nil || !strings.Contains(err.Error(), "did not include tokens") {
+		t.Fatalf("expected missing-token error, got %v", err)
+	}
+}
+
+func TestOAuthRetryAfterHandlesInvalidAndPastDates(t *testing.T) {
+	now := time.Date(2026, time.June, 6, 12, 0, 0, 0, time.UTC)
+	if delay, err := parseRetryAfter(now.Add(-time.Second).Format(http.TimeFormat), now); err != nil || delay != 0 {
+		t.Fatalf("past Retry-After = %s err=%v, want zero delay", delay, err)
+	}
+	if _, err := parseRetryAfter("not-a-date", now); err == nil {
+		t.Fatal("expected invalid Retry-After to fail")
+	}
+}
+
 func TestOAuthCallbackRejectsUnsafeBinding(t *testing.T) {
 	if _, err := StartOAuthCallback(CallbackOptions{Host: "0.0.0.0", Port: 33443}, "state"); err == nil {
 		t.Fatal("expected non-loopback host to fail")

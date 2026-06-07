@@ -22,6 +22,35 @@ func TestJSONEnvelope(t *testing.T) {
 	}
 }
 
+func TestFailurePreservesWorksectionErrorContract(t *testing.T) {
+	env := Failure("download", "default", &worksection.Error{
+		Code:    worksection.CodeUsage,
+		Message: "download URL is blocked",
+		Details: map[string]any{
+			"reason":        "download_host_mismatch",
+			"expected_host": "example.test",
+			"actual_host":   "files.example.test",
+		},
+	})
+	raw, err := JSON(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, want := range []string{
+		`"status": "error"`,
+		`"code": "usage"`,
+		`"message": "download URL is blocked"`,
+		`"reason": "download_host_mismatch"`,
+		`"expected_host": "example.test"`,
+		`"actual_host": "files.example.test"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("failure envelope missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestNDJSON(t *testing.T) {
 	env := Success("get_users", "default", "", json.RawMessage(`[{"id":"1"},{"id":"2"}]`))
 	raw, err := NDJSON(env, worksection.ResponseContract{})
