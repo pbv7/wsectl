@@ -386,6 +386,16 @@ declared in `package-lock.json` for reproducible Markdown linting.
 `make coverage-check` uses POSIX shell tools and is intended for Unix-like developer environments. Windows CI runs direct Go commands for
 cross-platform coverage of the source.
 
+Before tagging a release, run the end-to-end live probe against a real read-only Worksection account:
+
+```bash
+make live-probe
+```
+
+The live probe builds `dist/wsectl` and exercises the real CLI flow: doctor, identity, projects, tasks, comments, files, downloads, output modes,
+schema discovery, `api call`, and negative exit-code cases. See [Release](docs/release.md) for pinned project/task/file overrides and release
+acceptance notes.
+
 Optional live smoke tests are disabled by default:
 
 ```bash
