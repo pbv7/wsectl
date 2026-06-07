@@ -14,12 +14,18 @@ func TestLoadEnvOverrides(t *testing.T) {
 	t.Setenv("WSECTL_OUTPUT", "json")
 	t.Setenv("WSECTL_TIMEOUT", "5s")
 	t.Setenv("WSECTL_RATE_LIMIT", "2/s")
+	t.Setenv("WSECTL_HISTORY", "1")
+	t.Setenv("WSECTL_HISTORY_FILE", filepath.Join(t.TempDir(), "history.jsonl"))
+	t.Setenv("WSECTL_HISTORY_PARAMS", "safe")
 	cfg, err := Load(context.Background(), Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Defaults.Output != "json" || cfg.Defaults.Timeout != "5s" || cfg.Defaults.RateLimit != "2/s" {
 		t.Fatalf("unexpected defaults %#v", cfg.Defaults)
+	}
+	if !cfg.History.Enabled || cfg.History.Path == "" || cfg.History.IncludeParams != "safe" {
+		t.Fatalf("unexpected history config %#v", cfg.History)
 	}
 }
 
@@ -53,6 +59,30 @@ func TestLoadAttributesInvalidEnvTimeoutAndRateLimit(t *testing.T) {
 	_, err = Load(context.Background(), Overrides{})
 	if err == nil || !strings.Contains(err.Error(), `WSECTL_RATE_LIMIT="fast"`) || !strings.Contains(err.Error(), `unsupported rate limit "fast"`) {
 		t.Fatalf("expected attributed WSECTL_RATE_LIMIT error, got %v", err)
+	}
+}
+
+func TestLoadAttributesInvalidHistoryEnv(t *testing.T) {
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_HISTORY", "sometimes")
+	_, err := Load(context.Background(), Overrides{})
+	if err == nil || !strings.Contains(err.Error(), `WSECTL_HISTORY="sometimes"`) {
+		t.Fatalf("expected attributed WSECTL_HISTORY error, got %v", err)
+	}
+
+	t.Setenv("WSECTL_HISTORY", "")
+	t.Setenv("WSECTL_HISTORY_PARAMS", "verbose")
+	_, err = Load(context.Background(), Overrides{})
+	if err == nil || !strings.Contains(err.Error(), `WSECTL_HISTORY_PARAMS="verbose"`) || !strings.Contains(err.Error(), "invalid history include_params") {
+		t.Fatalf("expected attributed WSECTL_HISTORY_PARAMS error, got %v", err)
+	}
+}
+
+func TestDefaultHistoryPathUsesXDGStateHome(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+	if got, want := DefaultHistoryPath(), filepath.Join(stateDir, "wsectl", "history.jsonl"); got != want {
+		t.Fatalf("DefaultHistoryPath() = %q, want %q", got, want)
 	}
 }
 

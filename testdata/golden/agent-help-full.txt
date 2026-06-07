@@ -10,6 +10,7 @@ Operating rules:
   Use --profile NAME when account context matters.
   Avoid request loops; Worksection documents a 1 request/second limit.
   Never print tokens unless the user explicitly requests token material.
+  If history is enabled, inspect history JSONL metadata; do not expect full API bodies there.
 
 Common workflows:
   wsectl projects list --json
@@ -46,6 +47,7 @@ Output and errors:
   meta.contract_version and meta.response_shape describe the static output contract.
   Exit codes: 2 usage, 3 auth, 4 permission, 5 network, 6 API, 7 rate limit, 8 truncation.
   Use --fail-on-truncated when incomplete data must fail the run.
+  Optional history is written to a JSONL file, never to stdout.
 
 API compatibility notes:
   First-class commands normalize known Worksection quirks; api call uses raw API params.
@@ -58,6 +60,7 @@ Safety model:
   The MVP is read-only. Known Worksection mutation actions are rejected before a request.
   Secrets live in keyring, environment, encrypted-file, or explicit plaintext stores.
   Do not expose WSECTL_ACCESS_TOKEN, WSECTL_REFRESH_TOKEN, or WSECTL_CLIENT_SECRET.
+  History is opt-in and stores command metadata only; tokens and response bodies are not recorded.
 
 Worksection limits:
   Default client rate: 1 request/second.
@@ -94,6 +97,10 @@ Command catalog:
   wsectl files list              List files
   wsectl files task-attachments  List task attachments
   wsectl help                    Show detailed help
+  wsectl history                 Inspect local command history
+  wsectl history clear           Clear local command history
+  wsectl history list            List local command history
+  wsectl history path            Show local command history path
   wsectl me                      Get authorized user info
   wsectl profiles                Manage Worksection profiles
   wsectl profiles add            Add or update a profile

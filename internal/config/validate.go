@@ -26,6 +26,11 @@ func Validate(cfg Config) error {
 	if err := validateRateLimit(cfg.Defaults.RateLimit); err != nil {
 		return err
 	}
+	switch cfg.History.IncludeParams {
+	case "", "none", "safe", "all":
+	default:
+		return validationFailure(validationKindHistory, "invalid history include_params %q", cfg.History.IncludeParams)
+	}
 	for name, p := range cfg.Profiles {
 		switch p.AuthType {
 		case "", "oauth2", "admin_token":
@@ -66,6 +71,7 @@ const (
 	validationKindOutput    validationKind = "output"
 	validationKindTimeout   validationKind = "timeout"
 	validationKindRateLimit validationKind = "rate_limit"
+	validationKindHistory   validationKind = "history"
 )
 
 type validationError struct {

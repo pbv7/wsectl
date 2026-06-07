@@ -188,6 +188,20 @@ wsectl projects list --json --jq '.data[] | select(.status == "active") | {id, n
 
 Table output is only for humans.
 
+## Optional History
+
+Command history is opt-in and stored as local JSONL metadata, never stdout logging:
+
+```bash
+WSECTL_HISTORY=1 wsectl projects list --json
+wsectl history path --json
+wsectl history list --json --limit 20
+wsectl history clear --keep 1000
+```
+
+History records command metadata and non-secret parameters. It never stores full API responses, downloaded files, tokens, or authorization headers.
+See [Configuration](configuration.md) for desktop, container, and Windows paths.
+
 ## Shell Completion
 
 Generate completion scripts from the current binary:

@@ -23,6 +23,9 @@
 #   WSECTL_PROBE_PROJECT  Project ID to use instead of the first discovered.
 #   WSECTL_PROBE_TASK     Task ID to use instead of the first discovered.
 #   WSECTL_PROBE_FILE     File ID to use instead of the first discovered.
+#   WSECTL_HISTORY        Defaults to 0 so release probes do not write to a
+#                         user's persistent local history unless explicitly
+#                         overridden.
 #
 # Exit codes:
 #   0  all probes passed
@@ -31,6 +34,8 @@
 set -u
 
 WSECTL="${WSECTL:-dist/wsectl}"
+WSECTL_HISTORY="${WSECTL_HISTORY:-0}"
+export WSECTL_HISTORY
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
@@ -126,6 +131,53 @@ expect_exit() {
   fi
 }
 
+probe_history() {
+  local history_file="$TMPDIR/history-probe.jsonl"
+  local config_file="$TMPDIR/history-config.toml"
+  local secret_file="$TMPDIR/history-secret.json"
+  cat >"$config_file" <<EOF
+current_profile = "default"
+
+[defaults]
+output = "auto"
+rate_limit = "1/s"
+timeout = "30s"
+
+[profiles.default]
+account_url = "https://example.worksection.com"
+auth_type = "oauth2"
+secret_ref = "plaintext:$secret_file"
+EOF
+
+  local rc=0
+  WSECTL_CONFIG="$config_file" WSECTL_HISTORY=1 WSECTL_HISTORY_FILE="$history_file" \
+    $WSECTL auth login --manual-code --client-id history-probe --client-secret SECRET-VALUE \
+    >"$TMPDIR/out" 2>"$TMPDIR/err" || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    printf '\033[31m✗\033[0m history records redacted local command (exit %d)\n' "$rc" >&2
+    sed 's/^/    /' < "$TMPDIR/err" >&2
+    FAIL=$((FAIL+1))
+    return
+  fi
+  if [[ ! -s "$history_file" ]]; then
+    printf '\033[31m✗\033[0m history records redacted local command (no history file)\n' >&2
+    FAIL=$((FAIL+1))
+    return
+  fi
+  if grep -q 'SECRET-VALUE' "$history_file"; then
+    printf '\033[31m✗\033[0m history records redacted local command (secret leaked)\n' >&2
+    FAIL=$((FAIL+1))
+    return
+  fi
+  if ! grep -q '\[redacted\]' "$history_file"; then
+    printf '\033[31m✗\033[0m history records redacted local command (redaction marker missing)\n' >&2
+    FAIL=$((FAIL+1))
+    return
+  fi
+  printf '\033[32m✓\033[0m history records redacted local command\n' >&2
+  PASS=$((PASS+1))
+}
+
 skip() {
   printf '\033[33m·\033[0m %s (skipped: %s)\n' "$1" "$2" >&2
   SKIP=$((SKIP+1))
@@ -194,6 +246,7 @@ probe "me --json"           me --json           || true
 probe "commands --json"    commands --json    || true
 probe "api actions --json" api actions --json || true
 probe "version --json"     version --json     || true
+probe_history
 
 #
 # 3. Projects path (self-bootstrap PROJECT_ID)

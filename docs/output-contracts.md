@@ -2,6 +2,41 @@
 
 JSON is the stable interface for scripts and agents. Table output is optimized for human readability and should not be parsed.
 
+Command results are written to stdout or `--out`. Human diagnostics use stderr. Optional persistent history is written to its configured JSONL file,
+not stdout, so enabling history does not contaminate JSON, NDJSON, raw, or file output.
+
+## History Events
+
+When enabled, local history is JSONL. Each line is one event with this shape:
+
+```json
+{
+  "schema_version": "history.1",
+  "timestamp": "2026-06-07T12:34:56.123456789Z",
+  "command": "wsectl tasks list",
+  "normalized_args": ["--project", "PROJECT_ID", "--json"],
+  "action": "get_tasks",
+  "profile": "default",
+  "account_url": "https://company.worksection.com",
+  "auth_type": "oauth2",
+  "output": "json",
+  "params": {"id_project": "PROJECT_ID"},
+  "status": "ok",
+  "exit_code": 0,
+  "error_code": "",
+  "duration_ms": 412,
+  "count": 47,
+  "truncated": false,
+  "warnings": []
+}
+```
+
+Timestamps are UTC RFC3339Nano strings. `history list --limit N` returns the latest N valid events.
+`normalized_args` is the post-Cobra command view, not the literal shell command. It records flags in normalized form and keeps positional arguments
+after flags. Secret values are redacted. `include_params` applies to both structured `params` and `--param` entries in `normalized_args`; ordinary
+non-secret flags such as `--query` can still appear in `normalized_args`. History schema versions are independent from Worksection response
+contract versions.
+
 ## Modes
 
 ```text

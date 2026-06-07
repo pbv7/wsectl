@@ -24,6 +24,7 @@ The JSON form retains `topic` and `content` and adds `guide_format_version`, str
 - Use `wsectl api call ACTION` for lower-level read-only API access.
 - Avoid request loops. Worksection documents a 1 request/second limit.
 - Never print tokens unless the user explicitly asks for token material.
+- Optional history is JSONL metadata in a file, not stdout logging. It does not contain full responses or token values.
 
 ## Good Defaults
 
@@ -42,6 +43,7 @@ wsectl api actions --json
 wsectl api schema get_tasks --json
 wsectl tasks search --schema --json
 wsectl doctor --json
+wsectl history list --json --limit 20
 ```
 
 `commands --json` is the authoritative discovery contract. It includes explicit `category`, `actions`, `output_modes`, `agent_notes`, `auth_required`,

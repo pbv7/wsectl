@@ -43,10 +43,11 @@ func renderCommandReference(commands []commandInfo) string {
 			fmt.Fprintf(&b, "%s\n\n", info.Long)
 		}
 		fmt.Fprintf(&b, "**Usage:** `%s`\n\n", info.Usage)
-		fmt.Fprintf(&b, "**Category:** `%s`  \n", info.Category)
-		fmt.Fprintf(&b, "**Authentication required:** `%t`  \n", info.AuthRequired)
-		fmt.Fprintf(&b, "**Read-only:** `%t`  \n", info.ReadOnly)
-		fmt.Fprintf(&b, "**Output support:** `%t`\n\n", info.Output)
+		b.WriteString("**Command metadata:**\n\n")
+		fmt.Fprintf(&b, "- Category: `%s`\n", info.Category)
+		fmt.Fprintf(&b, "- Authentication required: `%t`\n", info.AuthRequired)
+		fmt.Fprintf(&b, "- Read-only: `%t`\n", info.ReadOnly)
+		fmt.Fprintf(&b, "- Output support: `%t`\n\n", info.Output)
 		if len(info.Actions) > 0 {
 			fmt.Fprintf(&b, "**Worksection actions:** `%s`\n\n", strings.Join(info.Actions, "`, `"))
 			wroteDetails := false

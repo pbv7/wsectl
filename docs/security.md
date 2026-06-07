@@ -24,6 +24,14 @@ Tokens are not stored in `config.toml`. Profiles contain a `secret_ref`, not the
 Commands do not print tokens by default. Avoid `--debug` in shared logs. Any future command that exposes token material should require an explicit
 dangerous flag.
 
+Optional command history is disabled by default. When enabled, it writes local JSONL metadata only: command path, action, profile, output mode, exit
+code, duration, counts, warnings, and non-secret parameters. It never records tokens, authorization headers, full API response bodies, or downloaded
+file contents. Account URLs and queried IDs or filters can still reveal work context, so treat the history file as a local forensic surface and keep
+it protected. History write failures do not change command exit codes; run `wsectl doctor` when history is enabled to verify the configured path is
+writable. History does not auto-trim during command execution; use `wsectl history clear --keep N` to compact it manually. History appends and
+compaction use a short-lived `.lock` file beside the history file to avoid concurrent rewrite races. Stale lock files older than 10 minutes are
+removed automatically to recover from interrupted processes.
+
 Downloads forward bearer credentials only to HTTPS URLs whose host matches the configured Worksection account host after normalization. Cross-host or
 insecure file URLs are blocked with structured error details instead of being retried unauthenticated.
 
@@ -54,3 +62,9 @@ WSECTL_ACCOUNT_URL=https://company.worksection.com WSECTL_ACCESS_TOKEN=... wsect
 ```
 
 Do not write plaintext secrets into repository files or build logs.
+
+For containers, prefer an explicit mounted history path or keep history disabled:
+
+```bash
+WSECTL_HISTORY=1 WSECTL_HISTORY_FILE=/state/history.jsonl wsectl doctor --api --json
+```

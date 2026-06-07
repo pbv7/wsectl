@@ -12,10 +12,12 @@ This is an unofficial tool and is not affiliated with Worksection.
 
 **Usage:** `wsectl [flags]`
 
-**Category:** `discovery`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `discovery`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `text`
 
@@ -55,10 +57,12 @@ Low-level Worksection API access
 
 **Usage:** `wsectl api [flags]`
 
-**Category:** `api`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `api`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -72,10 +76,12 @@ List known Worksection API actions
 
 **Usage:** `wsectl api actions [flags]`
 
-**Category:** `api`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `api`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `json`
 
@@ -91,10 +97,12 @@ Call a read-only Worksection API action
 
 **Usage:** `wsectl api call ACTION [flags]`
 
-**Category:** `api`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `api`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `dynamic`
 
@@ -122,10 +130,12 @@ Show known action parameters
 
 **Usage:** `wsectl api schema ACTION [flags]`
 
-**Category:** `api`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `api`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `json`
 
@@ -141,10 +151,12 @@ Authenticate with Worksection
 
 **Usage:** `wsectl auth [flags]`
 
-**Category:** `auth`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `auth`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -158,10 +170,12 @@ Start OAuth login or store manually supplied credentials
 
 **Usage:** `wsectl auth login [flags]`
 
-**Category:** `auth`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `auth`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `auto`, `json`, `yaml`, `table`
 
@@ -196,10 +210,12 @@ Delete stored credentials for the active profile
 
 **Usage:** `wsectl auth logout [flags]`
 
-**Category:** `auth`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `auth`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `auto`, `json`, `yaml`, `table`
 
@@ -215,10 +231,12 @@ Refresh OAuth token when stored refresh token is available
 
 **Usage:** `wsectl auth refresh [flags]`
 
-**Category:** `auth`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `auth`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `auto`, `json`, `yaml`, `table`
 
@@ -234,10 +252,12 @@ Show auth status
 
 **Usage:** `wsectl auth status [flags]`
 
-**Category:** `auth`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `auth`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `auto`, `json`, `yaml`, `table`
 
@@ -253,10 +273,12 @@ List public commands
 
 **Usage:** `wsectl commands [flags]`
 
-**Category:** `discovery`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `discovery`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `json`
 
@@ -272,10 +294,12 @@ Read comments
 
 **Usage:** `wsectl comments [flags]`
 
-**Category:** `comments`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `comments`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -289,10 +313,12 @@ List task comments
 
 **Usage:** `wsectl comments list TASK_ID [flags]`
 
-**Category:** `comments`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `comments`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_comments`
 
@@ -322,10 +348,12 @@ Generate a completion script from the current wsectl command tree.
 
 **Usage:** `wsectl completion [flags]`
 
-**Category:** `completion`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `completion`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `text`
 
@@ -341,10 +369,12 @@ Generate the completion script for bash
 
 **Usage:** `wsectl completion bash`
 
-**Category:** `completion`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `completion`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `text`
 
@@ -360,10 +390,12 @@ Generate the completion script for fish
 
 **Usage:** `wsectl completion fish`
 
-**Category:** `completion`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `completion`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `text`
 
@@ -379,10 +411,12 @@ Generate the completion script for powershell
 
 **Usage:** `wsectl completion powershell`
 
-**Category:** `completion`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `completion`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `text`
 
@@ -398,10 +432,12 @@ Generate the completion script for zsh
 
 **Usage:** `wsectl completion zsh`
 
-**Category:** `completion`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `completion`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `text`
 
@@ -417,10 +453,12 @@ Read costs
 
 **Usage:** `wsectl costs [flags]`
 
-**Category:** `costs`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `costs`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -434,10 +472,12 @@ Read costs
 
 **Usage:** `wsectl costs list [flags]`
 
-**Category:** `costs`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `costs`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_costs`
 
@@ -472,10 +512,12 @@ Read costs
 
 **Usage:** `wsectl costs total [flags]`
 
-**Category:** `costs`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `costs`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_costs_total`
 
@@ -510,10 +552,12 @@ Documentation helpers
 
 **Usage:** `wsectl docs [flags]`
 
-**Category:** `docs`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `docs`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -527,10 +571,12 @@ Generate command reference
 
 **Usage:** `wsectl docs generate [flags]`
 
-**Category:** `docs`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `docs`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `markdown`
 
@@ -552,10 +598,12 @@ Run local configuration and credential checks. Pass --api to also perform one au
 
 **Usage:** `wsectl doctor [flags]`
 
-**Category:** `diagnostics`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `diagnostics`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `me`
 
@@ -585,10 +633,12 @@ Read and download files
 
 **Usage:** `wsectl files [flags]`
 
-**Category:** `files`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `files`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -602,10 +652,12 @@ Download a file
 
 **Usage:** `wsectl files download FILE_ID [flags]`
 
-**Category:** `files`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `files`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `download`
 
@@ -633,10 +685,12 @@ List image files
 
 **Usage:** `wsectl files images [flags]`
 
-**Category:** `files`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `files`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_files`
 
@@ -665,10 +719,12 @@ List files
 
 **Usage:** `wsectl files list [flags]`
 
-**Category:** `files`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `files`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_files`
 
@@ -697,10 +753,12 @@ List task attachments
 
 **Usage:** `wsectl files task-attachments TASK_ID [flags]`
 
-**Category:** `files`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `files`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_task`
 
@@ -724,10 +782,12 @@ Show detailed help
 
 **Usage:** `wsectl help [topic|command] [flags]`
 
-**Category:** `discovery`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `discovery`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `text`, `json`
 
@@ -743,16 +803,114 @@ wsectl help agent --full
 wsectl help agent --json
 ```
 
+## `wsectl history`
+
+Inspect local command history
+
+Inspect optional local JSONL command history. History is disabled by default and never stores tokens or full Worksection responses.
+
+**Usage:** `wsectl history [flags]`
+
+**Command metadata:**
+
+- Category: `history`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
+
+**Examples:**
+
+```bash
+wsectl history --help
+```
+
+## `wsectl history clear`
+
+Clear local command history
+
+Delete the configured local command history JSONL file, or keep only the latest N entries with --keep.
+This command uses a local lock to avoid racing concurrent history writes and does not write a replacement history event.
+
+**Usage:** `wsectl history clear [flags]`
+
+**Command metadata:**
+
+- Category: `history`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
+
+**Output modes:** `auto`, `json`, `yaml`, `table`
+
+**Command flags:**
+
+- `--keep`
+
+**Examples:**
+
+```bash
+wsectl history clear --keep 1000
+wsectl history clear
+```
+
+## `wsectl history list`
+
+List local command history
+
+List optional local command history entries from the configured JSONL history file.
+
+**Usage:** `wsectl history list [flags]`
+
+**Command metadata:**
+
+- Category: `history`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
+
+**Output modes:** `auto`, `json`, `yaml`, `table`, `ndjson`
+
+**Examples:**
+
+```bash
+wsectl history list --json --limit 20
+```
+
+## `wsectl history path`
+
+Show local command history path
+
+Show whether optional local command history is enabled and which JSONL file path is used.
+
+**Usage:** `wsectl history path [flags]`
+
+**Command metadata:**
+
+- Category: `history`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
+
+**Output modes:** `auto`, `json`, `yaml`, `table`
+
+**Examples:**
+
+```bash
+wsectl history path --json
+```
+
 ## `wsectl me`
 
 Get authorized user info
 
 **Usage:** `wsectl me [flags]`
 
-**Category:** `identity`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `identity`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `me`
 
@@ -776,10 +934,12 @@ Manage Worksection profiles
 
 **Usage:** `wsectl profiles [flags]`
 
-**Category:** `profiles`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `profiles`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -793,10 +953,12 @@ Add or update a profile
 
 **Usage:** `wsectl profiles add NAME [flags]`
 
-**Category:** `profiles`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `profiles`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Command flags:**
 
@@ -816,10 +978,12 @@ List profiles
 
 **Usage:** `wsectl profiles list [flags]`
 
-**Category:** `profiles`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `profiles`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `auto`, `json`, `yaml`, `table`, `ndjson`
 
@@ -835,10 +999,12 @@ Remove a profile
 
 **Usage:** `wsectl profiles remove NAME [flags]`
 
-**Category:** `profiles`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `profiles`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -852,10 +1018,12 @@ Show a profile
 
 **Usage:** `wsectl profiles show [NAME] [flags]`
 
-**Category:** `profiles`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `profiles`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `auto`, `json`, `yaml`, `table`
 
@@ -871,10 +1039,12 @@ Set current profile
 
 **Usage:** `wsectl profiles use NAME [flags]`
 
-**Category:** `profiles`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `profiles`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -888,10 +1058,12 @@ Read projects
 
 **Usage:** `wsectl projects [flags]`
 
-**Category:** `projects`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `projects`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -905,10 +1077,12 @@ Get project events
 
 **Usage:** `wsectl projects events [flags]`
 
-**Category:** `projects`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `projects`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_events`
 
@@ -937,10 +1111,12 @@ Get a project
 
 **Usage:** `wsectl projects get PROJECT_ID [flags]`
 
-**Category:** `projects`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `projects`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_project`
 
@@ -968,10 +1144,12 @@ List project groups
 
 **Usage:** `wsectl projects groups [flags]`
 
-**Category:** `projects`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `projects`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_project_groups`
 
@@ -995,10 +1173,12 @@ List projects
 
 **Usage:** `wsectl projects list [flags]`
 
-**Category:** `projects`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `projects`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_projects`
 
@@ -1028,10 +1208,12 @@ Get project team
 
 **Usage:** `wsectl projects team PROJECT_ID [flags]`
 
-**Category:** `projects`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `projects`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_project`
 
@@ -1055,10 +1237,12 @@ Read task and project tags
 
 **Usage:** `wsectl tags [flags]`
 
-**Category:** `tags`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `tags`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -1072,10 +1256,12 @@ Read project tags
 
 **Usage:** `wsectl tags project [flags]`
 
-**Category:** `tags`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `tags`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -1089,10 +1275,12 @@ List tag groups
 
 **Usage:** `wsectl tags project groups [flags]`
 
-**Category:** `tags`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `tags`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_project_tag_groups`
 
@@ -1121,10 +1309,12 @@ List tags
 
 **Usage:** `wsectl tags project list [flags]`
 
-**Category:** `tags`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `tags`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_project_tags`
 
@@ -1154,10 +1344,12 @@ Read task tags
 
 **Usage:** `wsectl tags task [flags]`
 
-**Category:** `tags`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `tags`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -1171,10 +1363,12 @@ List tag groups
 
 **Usage:** `wsectl tags task groups [flags]`
 
-**Category:** `tags`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `tags`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_task_tag_groups`
 
@@ -1203,10 +1397,12 @@ List tags
 
 **Usage:** `wsectl tags task list [flags]`
 
-**Category:** `tags`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `tags`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_task_tags`
 
@@ -1236,10 +1432,12 @@ Read and search tasks
 
 **Usage:** `wsectl tasks [flags]`
 
-**Category:** `tasks`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `tasks`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -1255,10 +1453,12 @@ List all account tasks. Worksection can cap large responses at 10000 records; ch
 
 **Usage:** `wsectl tasks all [flags]`
 
-**Category:** `tasks`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `tasks`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_all_tasks`
 
@@ -1287,10 +1487,12 @@ Get task comments
 
 **Usage:** `wsectl tasks discussion TASK_ID [flags]`
 
-**Category:** `tasks`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `tasks`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_task`
 
@@ -1314,10 +1516,12 @@ Get a task
 
 **Usage:** `wsectl tasks get TASK_ID [flags]`
 
-**Category:** `tasks`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `tasks`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_task`
 
@@ -1345,10 +1549,12 @@ List project tasks
 
 **Usage:** `wsectl tasks list [flags]`
 
-**Category:** `tasks`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `tasks`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_tasks`
 
@@ -1378,10 +1584,12 @@ Get task relations
 
 **Usage:** `wsectl tasks relations TASK_ID [flags]`
 
-**Category:** `tasks`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `tasks`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_task`
 
@@ -1407,10 +1615,12 @@ Search tasks by simple query or advanced Worksection filter. Prefer --json for s
 
 **Usage:** `wsectl tasks search [flags]`
 
-**Category:** `tasks`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `tasks`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `search_tasks`
 
@@ -1449,10 +1659,12 @@ Get task subscribers
 
 **Usage:** `wsectl tasks subscribers TASK_ID [flags]`
 
-**Category:** `tasks`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `tasks`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_task`
 
@@ -1476,10 +1688,12 @@ Get task subtasks
 
 **Usage:** `wsectl tasks subtasks TASK_ID [flags]`
 
-**Category:** `tasks`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `tasks`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_task`
 
@@ -1503,10 +1717,12 @@ Read timers
 
 **Usage:** `wsectl timers [flags]`
 
-**Category:** `timers`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `timers`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -1520,10 +1736,12 @@ List enabled member timers
 
 **Usage:** `wsectl timers list [flags]`
 
-**Category:** `timers`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `timers`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_timers`
 
@@ -1547,10 +1765,12 @@ Get current user timer
 
 **Usage:** `wsectl timers mine [flags]`
 
-**Category:** `timers`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `timers`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_my_timer`
 
@@ -1576,10 +1796,12 @@ Read users, groups, contacts, and schedules
 
 **Usage:** `wsectl users [flags]`
 
-**Category:** `users`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `users`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -1593,10 +1815,12 @@ List contact groups
 
 **Usage:** `wsectl users contact-groups [flags]`
 
-**Category:** `users`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `users`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_contact_groups`
 
@@ -1620,10 +1844,12 @@ List contacts
 
 **Usage:** `wsectl users contacts [flags]`
 
-**Category:** `users`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `users`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_contacts`
 
@@ -1647,10 +1873,12 @@ List user groups
 
 **Usage:** `wsectl users groups [flags]`
 
-**Category:** `users`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `users`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_user_groups`
 
@@ -1674,10 +1902,12 @@ List users
 
 **Usage:** `wsectl users list [flags]`
 
-**Category:** `users`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `users`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_users`
 
@@ -1701,10 +1931,12 @@ List users' non-working days
 
 **Usage:** `wsectl users schedule [flags]`
 
-**Category:** `users`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `users`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_users_schedule`
 
@@ -1734,10 +1966,12 @@ Print version information
 
 **Usage:** `wsectl version [flags]`
 
-**Category:** `discovery`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `discovery`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `true`
 
 **Output modes:** `text`, `json`, `yaml`, `table`, `ndjson`, `raw`
 
@@ -1754,10 +1988,12 @@ Read webhooks
 
 **Usage:** `wsectl webhooks [flags]`
 
-**Category:** `webhooks`  
-**Authentication required:** `false`  
-**Read-only:** `true`  
-**Output support:** `false`
+**Command metadata:**
+
+- Category: `webhooks`
+- Authentication required: `false`
+- Read-only: `true`
+- Output support: `false`
 
 **Examples:**
 
@@ -1771,10 +2007,12 @@ List webhooks
 
 **Usage:** `wsectl webhooks list [flags]`
 
-**Category:** `webhooks`  
-**Authentication required:** `true`  
-**Read-only:** `true`  
-**Output support:** `true`
+**Command metadata:**
+
+- Category: `webhooks`
+- Authentication required: `true`
+- Read-only: `true`
+- Output support: `true`
 
 **Worksection actions:** `get_webhooks`
 

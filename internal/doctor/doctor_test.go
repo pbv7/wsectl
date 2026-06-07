@@ -132,6 +132,20 @@ func TestExistingUnusualProfileNameWarnsButDoesNotFail(t *testing.T) {
 	assertCheck(t, report, "profile_names", StatusWarn)
 }
 
+func TestEnabledHistoryPathMustBeWritable(t *testing.T) {
+	cfg := testConfig("env:")
+	dir := t.TempDir()
+	blocker := dir + "/not-a-directory"
+	if err := os.WriteFile(blocker, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.History.Enabled = true
+	cfg.History.Path = blocker + "/history.jsonl"
+	report, err := Run(context.Background(), Options{}, dependenciesFor(cfg, validSecret()))
+	assertExitCode(t, err, 2)
+	assertCheck(t, report, "history", StatusFail)
+}
+
 func TestKeyringCredentialFailureUsesBackendRemediation(t *testing.T) {
 	cfg := testConfig("keyring:wsectl/default")
 	deps := dependenciesFor(cfg, auth.SecretBundle{})

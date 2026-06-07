@@ -37,6 +37,11 @@ type state struct {
 	verbose         bool
 	debug           bool
 	failOnTruncated bool
+
+	history         historyRun
+	configLoaded    bool
+	cachedConfig    config.Config
+	cachedConfigErr error
 }
 
 func NewRoot(version, commit, date string) *cobra.Command {
@@ -67,6 +72,7 @@ func NewRoot(version, commit, date string) *cobra.Command {
 	root.AddCommand(newDoctorCommand(s))
 	root.AddCommand(newCompletionCommand())
 	root.AddCommand(newVersionCommand(s))
+	root.AddCommand(newHistoryCommand(s))
 	root.AddCommand(newReadCommands(s)...)
 	if err := applyCommandMetadata(root); err != nil {
 		panic(err)
@@ -76,9 +82,11 @@ func NewRoot(version, commit, date string) *cobra.Command {
 	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		if cmd == root {
 			_, _ = fmt.Fprint(cmd.OutOrStdout(), rootGuide().Content)
+			s.recordHelpHistory(cmd, args)
 			return
 		}
 		defaultHelp(cmd, args)
+		s.recordHelpHistory(cmd, args)
 	})
 	return root
 }
@@ -125,10 +133,16 @@ func addGlobalFlags(cmd *cobra.Command, s *state) {
 }
 
 func (s *state) loadConfig(ctx context.Context) (config.Config, error) {
+	if s.configLoaded {
+		return s.cachedConfig, s.cachedConfigErr
+	}
 	cfg, err := config.Load(ctx, s.configOverrides())
 	if err == nil && s.format == "" {
 		s.format = cfg.Defaults.Output
 	}
+	s.cachedConfig = cfg
+	s.cachedConfigErr = err
+	s.configLoaded = true
 	return cfg, err
 }
 
@@ -271,6 +285,7 @@ func (s *state) runAction(cmd *cobra.Command, action string, params map[string]s
 }
 
 func (s *state) runActionWithOptions(cmd *cobra.Command, action string, params map[string]string, allowUnknown bool, transform func(json.RawMessage) (json.RawMessage, []string, error)) error {
+	s.noteHistoryAction(action, params)
 	if s.schema {
 		return s.writeActionSchema(cmd, action)
 	}
@@ -281,6 +296,7 @@ func (s *state) runActionWithOptions(cmd *cobra.Command, action string, params m
 	if err != nil {
 		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, err)
 	}
+	s.noteHistoryClient(clientInfo)
 	raw, err := s.callActionRaw(cmd, clientInfo, action, params)
 	if err != nil {
 		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, err)
@@ -301,6 +317,7 @@ func (s *state) writeRawActionResult(cmd *cobra.Command, action string, raw []by
 	if err := writeRawBytes(cmd.OutOrStdout(), s.out, raw); err != nil {
 		return err
 	}
+	s.noteRawHistoryResult(action, raw)
 	if s.debug {
 		s.writeDiagnostic(cmd, "action=%s response_bytes=%d raw=true", action, len(raw))
 	}
@@ -308,6 +325,16 @@ func (s *state) writeRawActionResult(cmd *cobra.Command, action string, raw []by
 		return &worksection.Error{Code: worksection.CodeAPI, Message: "Worksection API returned an error response"}
 	}
 	return nil
+}
+
+func (s *state) noteRawHistoryResult(action string, raw []byte) {
+	resp, err := worksection.ParseResponse(raw)
+	if err != nil || resp.Status != "ok" {
+		return
+	}
+	spec, _ := worksection.LookupAction(action)
+	env := output.SuccessWithContract(action, s.history.profile, s.history.accountURL, resp.OutputData(action), spec.Response)
+	s.noteHistoryEnvelope(env)
 }
 
 func rawWorksectionError(raw []byte) bool {
@@ -330,6 +357,7 @@ func (s *state) writeParsedActionResult(cmd *cobra.Command, action string, clien
 	if s.debug {
 		s.writeDiagnostic(cmd, "action=%s response_bytes=%d raw=false", action, len(raw))
 	}
+	s.noteHistoryEnvelope(env)
 	return output.Write(cmd.OutOrStdout(), env, opts)
 }
 
@@ -385,6 +413,7 @@ func (s *state) writeActionSchema(cmd *cobra.Command, action string) error {
 	}
 	raw, _ := json.Marshal(spec)
 	env := output.SuccessWithContract("schema "+action, "", "", raw, spec.Response)
+	s.noteHistoryEnvelope(env)
 	opts := s.outputOptions()
 	opts.Format = "json"
 	return output.Write(cmd.OutOrStdout(), env, opts)
@@ -423,7 +452,12 @@ func wrapCommandErrors(root *cobra.Command, s *state) {
 		if cmd.RunE != nil {
 			original := cmd.RunE
 			cmd.RunE = func(cmd *cobra.Command, args []string) error {
+				started := time.Now()
+				s.beginHistoryRun()
 				err := original(cmd, args)
+				duration := time.Since(started)
+				s.recordCommandHistory(cmd, args, started, duration, err)
+				s.endHistoryRun()
 				if err == nil || isRendered(err) {
 					return err
 				}

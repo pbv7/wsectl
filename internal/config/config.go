@@ -21,6 +21,12 @@ type Defaults struct {
 	Timeout   string `mapstructure:"timeout"`
 }
 
+type History struct {
+	Enabled       bool   `mapstructure:"enabled"`
+	Path          string `mapstructure:"path"`
+	IncludeParams string `mapstructure:"include_params"`
+}
+
 // Profile identifies a Worksection account and the credential reference used
 // to authenticate requests for that account.
 type Profile struct {
@@ -35,6 +41,7 @@ type Config struct {
 	Path           string             `mapstructure:"-"`
 	CurrentProfile string             `mapstructure:"current_profile"`
 	Defaults       Defaults           `mapstructure:"defaults"`
+	History        History            `mapstructure:"history"`
 	Profiles       map[string]Profile `mapstructure:"profiles"`
 }
 
@@ -58,6 +65,11 @@ func Builtin() Config {
 			RateLimit: "1/s",
 			Timeout:   "30s",
 		},
+		History: History{
+			Enabled:       false,
+			Path:          "",
+			IncludeParams: "all",
+		},
 		Profiles: map[string]Profile{},
 	}
 }
@@ -80,7 +92,10 @@ func Load(_ context.Context, overrides Overrides) (Config, error) {
 		return cfg, err
 	}
 	cfg.Path = path
-	envSources := applyEnv(&cfg)
+	envSources, err := applyEnv(&cfg)
+	if err != nil {
+		return cfg, err
+	}
 	applyOverrides(&cfg, overrides)
 	if cfg.Profiles == nil {
 		cfg.Profiles = map[string]Profile{}
@@ -155,13 +170,39 @@ func DefaultConfigPath() string {
 	return filepath.Join(home, ".config", "wsectl", "config.toml")
 }
 
-type envSources struct {
-	output    string
-	timeout   string
-	rateLimit string
+// DefaultStateDir returns the platform-specific default state directory.
+func DefaultStateDir() string {
+	if xdg := os.Getenv("XDG_STATE_HOME"); xdg != "" {
+		return filepath.Join(xdg, "wsectl")
+	}
+	if runtime.GOOS == "windows" {
+		if localAppData := firstNonEmpty(os.Getenv("LocalAppData"), os.Getenv("LOCALAPPDATA")); localAppData != "" {
+			return filepath.Join(localAppData, "wsectl")
+		}
+		if appData := firstNonEmpty(os.Getenv("AppData"), os.Getenv("APPDATA")); appData != "" {
+			return filepath.Join(appData, "wsectl")
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "."
+	}
+	return filepath.Join(home, ".local", "state", "wsectl")
 }
 
-func applyEnv(cfg *Config) envSources {
+// DefaultHistoryPath returns the default JSONL action history path.
+func DefaultHistoryPath() string {
+	return filepath.Join(DefaultStateDir(), "history.jsonl")
+}
+
+type envSources struct {
+	output        string
+	timeout       string
+	rateLimit     string
+	historyParams string
+}
+
+func applyEnv(cfg *Config) (envSources, error) {
 	var sources envSources
 	if v := os.Getenv("WSECTL_OUTPUT"); v != "" {
 		cfg.Defaults.Output = v
@@ -178,7 +219,21 @@ func applyEnv(cfg *Config) envSources {
 	if v := os.Getenv("WSECTL_PROFILE"); v != "" {
 		cfg.CurrentProfile = v
 	}
-	return sources
+	if v := os.Getenv("WSECTL_HISTORY"); v != "" {
+		enabled, err := parseEnvBool(v)
+		if err != nil {
+			return sources, fmt.Errorf("WSECTL_HISTORY=%q: %w", v, err)
+		}
+		cfg.History.Enabled = enabled
+	}
+	if v := os.Getenv("WSECTL_HISTORY_FILE"); v != "" {
+		cfg.History.Path = v
+	}
+	if v := os.Getenv("WSECTL_HISTORY_PARAMS"); v != "" {
+		cfg.History.IncludeParams = v
+		sources.historyParams = v
+	}
+	return sources, nil
 }
 
 func applyOverrides(cfg *Config, o Overrides) {
@@ -217,6 +272,8 @@ func Save(cfg Config) error {
 	fmt.Fprintf(&b, "current_profile = %q\n\n", cfg.CurrentProfile)
 	fmt.Fprintf(&b, "[defaults]\noutput = %q\nrate_limit = %q\ntimeout = %q\n\n",
 		cfg.Defaults.Output, cfg.Defaults.RateLimit, cfg.Defaults.Timeout)
+	fmt.Fprintf(&b, "[history]\nenabled = %t\npath = %q\ninclude_params = %q\n\n",
+		cfg.History.Enabled, cfg.History.Path, cfg.History.IncludeParams)
 	names := make([]string, 0, len(cfg.Profiles))
 	for name := range cfg.Profiles {
 		names = append(names, name)
@@ -241,7 +298,21 @@ func envOverrideError(err error, sources envSources, overrides Overrides) error 
 	if overrides.RateLimit == "" && sources.rateLimit != "" && kind == validationKindRateLimit {
 		return fmt.Errorf("WSECTL_RATE_LIMIT=%q: %w", sources.rateLimit, err)
 	}
+	if sources.historyParams != "" && kind == validationKindHistory {
+		return fmt.Errorf("WSECTL_HISTORY_PARAMS=%q: %w", sources.historyParams, err)
+	}
 	return err
+}
+
+func parseEnvBool(value string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true, nil
+	case "0", "false", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid history setting %q, expected 1/0/true/false", value)
+	}
 }
 
 func tomlProfileKey(name string) string {

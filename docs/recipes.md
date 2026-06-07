@@ -141,6 +141,31 @@ export WSECTL_ACCESS_TOKEN=...
 wsectl projects list --json --out projects.json
 ```
 
+## Keep A Local Action History
+
+Enable opt-in JSONL command history for a desktop session:
+
+```bash
+WSECTL_HISTORY=1 wsectl projects list --json
+wsectl history path --json
+wsectl history list --json --limit 20
+wsectl history clear --keep 1000
+```
+
+Use an explicit mounted path in containers:
+
+```bash
+WSECTL_HISTORY=1 WSECTL_HISTORY_FILE=/state/history.jsonl wsectl doctor --api --json
+```
+
+PowerShell:
+
+```powershell
+$env:WSECTL_HISTORY = "1"
+$env:WSECTL_HISTORY_FILE = "C:\wsectl-state\history.jsonl"
+wsectl history list --json --limit 20
+```
+
 ## Discover Lower-Level API Support
 
 ```bash

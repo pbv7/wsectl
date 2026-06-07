@@ -10,6 +10,7 @@ Operating rules:
   Use --profile NAME when account context matters.
   Avoid request loops; Worksection documents a 1 request/second limit.
   Never print tokens unless the user explicitly requests token material.
+  If history is enabled, inspect history JSONL metadata; do not expect full API bodies there.
 
 Common workflows:
   wsectl projects list --json

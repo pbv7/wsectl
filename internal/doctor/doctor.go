@@ -13,6 +13,7 @@ import (
 
 	"github.com/pbv7/wsectl/internal/auth"
 	"github.com/pbv7/wsectl/internal/config"
+	"github.com/pbv7/wsectl/internal/history"
 	"github.com/pbv7/wsectl/internal/worksection"
 )
 
@@ -93,7 +94,7 @@ func Run(ctx context.Context, opts Options, deps Dependencies) (Report, error) {
 		return finalize(report, worksection.CodeUsage)
 	}
 	report.ConfigPath = cfg.Path
-	checkConfig(&report, cfg, deps)
+	checkConfig(ctx, &report, cfg, deps)
 	profile, err := checkActiveProfile(&report, cfg)
 	if err != nil {
 		return finalize(report, worksection.CodeUsage)
@@ -119,12 +120,13 @@ func Run(ctx context.Context, opts Options, deps Dependencies) (Report, error) {
 	return finalize(report, worksection.CodeGeneral)
 }
 
-func checkConfig(report *Report, cfg config.Config, deps Dependencies) {
+func checkConfig(ctx context.Context, report *Report, cfg config.Config, deps Dependencies) {
 	checkConfigFile(report, cfg.Path, deps)
 	checkConfigValidation(report, cfg)
 	checkProfileNames(report, cfg)
 	checkRateLimit(report, cfg)
 	checkTimeout(report, cfg)
+	checkHistory(ctx, report, cfg)
 }
 
 func checkConfigValidation(report *Report, cfg config.Config) {
@@ -149,6 +151,23 @@ func checkTimeout(report *Report, cfg config.Config) {
 		return
 	}
 	add(report, StatusOK, "timeout", "effective timeout is "+cfg.Timeout().String(), "")
+}
+
+func checkHistory(ctx context.Context, report *Report, cfg config.Config) {
+	path := cfg.History.Path
+	if path == "" {
+		path = config.DefaultHistoryPath()
+	}
+	options := history.Options{Enabled: cfg.History.Enabled, Path: path}
+	if !options.Enabled {
+		add(report, StatusOK, "history", "history is disabled", "")
+		return
+	}
+	if err := history.CheckWritable(ctx, options); err != nil {
+		add(report, StatusFail, "history", "history path is not writable: "+err.Error(), "Set WSECTL_HISTORY_FILE to a writable path or disable history with WSECTL_HISTORY=0.")
+		return
+	}
+	add(report, StatusOK, "history", "history path is writable: "+path, "")
 }
 
 func checkActiveProfile(report *Report, cfg config.Config) (config.Profile, error) {

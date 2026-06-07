@@ -16,6 +16,9 @@ import (
 
 	"github.com/pbv7/wsectl/internal/auth"
 	"github.com/pbv7/wsectl/internal/doctor"
+	"github.com/pbv7/wsectl/internal/history"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 func execute(args ...string) (string, error) {
@@ -185,6 +188,293 @@ func TestVersionCommand(t *testing.T) {
 	if env.Status != "ok" || env.Data.Version != "test" || env.Data.Commit != "commit" || env.Data.Date != "date" || env.Data.GoVersion == "" || env.Data.OS == "" || env.Data.Arch == "" {
 		t.Fatalf("unexpected version envelope %#v", env)
 	}
+}
+
+func TestHistoryDisabledByDefault(t *testing.T) {
+	historyPath := filepath.Join(t.TempDir(), "history.jsonl")
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_HISTORY_FILE", historyPath)
+	out, err := execute("version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "wsectl test\n" {
+		t.Fatalf("history should not affect stdout: %q", out)
+	}
+	if _, err := os.Stat(historyPath); !os.IsNotExist(err) {
+		t.Fatalf("history should be disabled by default, stat err=%v", err)
+	}
+}
+
+func TestHistoryRecordsCommandAndCommandsWork(t *testing.T) {
+	historyPath := filepath.Join(t.TempDir(), "history.jsonl")
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_HISTORY", "1")
+	t.Setenv("WSECTL_HISTORY_FILE", historyPath)
+
+	out, err := execute("version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "wsectl test\n" {
+		t.Fatalf("history should not affect stdout: %q", out)
+	}
+	result, err := history.ReadWithStats(historyPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := result.Events
+	if len(events) != 1 || events[0].Command != "wsectl version" || events[0].Status != "ok" || events[0].ExitCode != 0 {
+		t.Fatalf("unexpected history event: %#v", events)
+	}
+
+	pathOut, err := execute("history", "path", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pathEnv struct {
+		Status string `json:"status"`
+		Data   struct {
+			Enabled bool   `json:"enabled"`
+			Path    string `json:"path"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(pathOut), &pathEnv); err != nil {
+		t.Fatalf("invalid history path json: %v\n%s", err, pathOut)
+	}
+	if pathEnv.Status != "ok" || !pathEnv.Data.Enabled || pathEnv.Data.Path != historyPath {
+		t.Fatalf("unexpected history path output: %#v", pathEnv)
+	}
+
+	listOut, err := execute("history", "list", "--json", "--limit", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listEnv struct {
+		Status string          `json:"status"`
+		Data   []history.Event `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(listOut), &listEnv); err != nil {
+		t.Fatalf("invalid history list json: %v\n%s", err, listOut)
+	}
+	if listEnv.Status != "ok" || len(listEnv.Data) != 1 || listEnv.Data[0].Command != "wsectl version" {
+		t.Fatalf("unexpected history list output: %#v", listEnv)
+	}
+
+	if _, err := execute("history", "clear", "--json"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(historyPath); !os.IsNotExist(err) {
+		t.Fatalf("history clear should remove the file without rewriting it, stat err=%v", err)
+	}
+}
+
+func TestHistorySkipsHelpCompletionAndHistoryCommands(t *testing.T) {
+	historyPath := filepath.Join(t.TempDir(), "history.jsonl")
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_HISTORY", "1")
+	t.Setenv("WSECTL_HISTORY_FILE", historyPath)
+
+	for _, args := range [][]string{
+		{},
+		{"--help"},
+		{"help"},
+		{"help", "agent"},
+		{"auth", "login", "--help"},
+		{"completion", "bash"},
+		{"history", "path", "--json"},
+		{"history", "list", "--json"},
+	} {
+		if _, err := execute(args...); err != nil {
+			t.Fatalf("%v failed: %v", args, err)
+		}
+	}
+	if _, err := os.Stat(historyPath); !os.IsNotExist(err) {
+		t.Fatalf("noisy commands should not create history, stat err=%v", err)
+	}
+}
+
+func TestHistoryListSkipsMalformedLinesAndSupportsFieldsAndJQ(t *testing.T) {
+	historyPath := filepath.Join(t.TempDir(), "history.jsonl")
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_HISTORY", "1")
+	t.Setenv("WSECTL_HISTORY_FILE", historyPath)
+	raw := strings.Join([]string{
+		`{"schema_version":"history.1","timestamp":"2026-06-07T12:00:00Z","command":"wsectl me","status":"ok","exit_code":0,"duration_ms":10}`,
+		`not-json`,
+		`{"schema_version":"history.1","timestamp":"2026-06-07T12:01:00Z","command":"wsectl version","status":"ok","exit_code":0,"duration_ms":1}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(historyPath, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	fieldsOut, err := execute("history", "list", "--json", "--fields", "command,status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(fieldsOut, "Skipped 1 malformed history line") || strings.Contains(fieldsOut, "duration_ms") {
+		t.Fatalf("history fields output did not project rows or warn:\n%s", fieldsOut)
+	}
+
+	jqOut, err := execute("history", "list", "--json", "--jq", ".data[-1].command")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(jqOut) != `"wsectl version"` {
+		t.Fatalf("unexpected history jq output: %q", jqOut)
+	}
+}
+
+func TestHistoryClearKeepRetainsLatestEntries(t *testing.T) {
+	historyPath := filepath.Join(t.TempDir(), "history.jsonl")
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_HISTORY", "1")
+	t.Setenv("WSECTL_HISTORY_FILE", historyPath)
+	raw := strings.Join([]string{
+		`{"schema_version":"history.1","timestamp":"2026-06-07T12:00:00Z","command":"wsectl me","status":"ok","exit_code":0,"duration_ms":10}`,
+		`{"schema_version":"history.1","timestamp":"2026-06-07T12:01:00Z","command":"wsectl version","status":"ok","exit_code":0,"duration_ms":1}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(historyPath, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := execute("history", "clear", "--keep", "1", "--json"); err != nil {
+		t.Fatal(err)
+	}
+	result, err := history.ReadWithStats(historyPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Events) != 1 || result.Events[0].Command != "wsectl version" {
+		t.Fatalf("history clear --keep retained wrong entries: %#v", result.Events)
+	}
+}
+
+func TestHistoryParamsNoneOmitsParamsFromNormalizedArgs(t *testing.T) {
+	historyPath := filepath.Join(t.TempDir(), "history.jsonl")
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_HISTORY", "1")
+	t.Setenv("WSECTL_HISTORY_FILE", historyPath)
+	t.Setenv("WSECTL_HISTORY_PARAMS", "none")
+	t.Setenv("WSECTL_ACCOUNT_URL", "https://company.worksection.com")
+
+	out, err := execute("api", "call", "get_users", "--allow-unknown", "--param", "token=secret-token", "--param", "filter=name has 'invoice'", "--json")
+	if err == nil {
+		t.Fatal("expected auth error")
+	}
+	if strings.Contains(out, "secret-token") {
+		t.Fatalf("command output leaked token:\n%s", out)
+	}
+	result, readErr := history.ReadWithStats(historyPath, 0)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected one history event, got %#v", result.Events)
+	}
+	event := result.Events[0]
+	if len(event.Params) != 0 {
+		t.Fatalf("none policy should omit params: %#v", event.Params)
+	}
+	joined := strings.Join(event.NormalizedArgs, " ")
+	for _, leaked := range []string{"--param", "secret-token", "invoice", "filter="} {
+		if strings.Contains(joined, leaked) {
+			t.Fatalf("none policy leaked %q in normalized args: %#v", leaked, event.NormalizedArgs)
+		}
+	}
+}
+
+func TestHistoryRecordsFailuresWithoutSecretLeaks(t *testing.T) {
+	historyPath := filepath.Join(t.TempDir(), "history.jsonl")
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_HISTORY", "1")
+	t.Setenv("WSECTL_HISTORY_FILE", historyPath)
+	t.Setenv("WSECTL_ACCOUNT_URL", "https://company.worksection.com")
+
+	out, err := execute("api", "call", "get_users", "--allow-unknown", "--param", "token=secret-token", "--param", "filter=name has 'invoice'", "--json")
+	if err == nil {
+		t.Fatal("expected auth error")
+	}
+	if strings.Contains(out, "secret-token") {
+		t.Fatalf("command output leaked token:\n%s", out)
+	}
+	result, readErr := history.ReadWithStats(historyPath, 0)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	events := result.Events
+	if len(events) != 1 {
+		t.Fatalf("expected one history event, got %#v", events)
+	}
+	event := events[0]
+	if event.Status != "error" || event.ExitCode != 3 || event.ErrorCode != "authentication" || event.Action != "get_users" {
+		t.Fatalf("unexpected failure event: %#v", event)
+	}
+	if event.Params["token"] != history.Redacted || event.Params["filter"] != "name has 'invoice'" {
+		t.Fatalf("unexpected params redaction: %#v", event.Params)
+	}
+	if strings.Contains(strings.Join(event.NormalizedArgs, " "), "secret-token") {
+		t.Fatalf("history normalized args leaked token: %#v", event.NormalizedArgs)
+	}
+	paramArgs := 0
+	for _, arg := range event.NormalizedArgs {
+		if arg == "--param" {
+			t.Fatalf("history normalized args should not emit bare --param without value: %#v", event.NormalizedArgs)
+		}
+		if strings.HasPrefix(arg, "--param=") {
+			paramArgs++
+		}
+	}
+	if paramArgs != 2 || !containsString(event.NormalizedArgs, "--param=token="+history.Redacted) || !containsString(event.NormalizedArgs, "--param=filter=name has 'invoice'") {
+		t.Fatalf("history normalized args did not preserve repeated params safely: %#v", event.NormalizedArgs)
+	}
+	if containsString(event.NormalizedArgs, "api") || containsString(event.NormalizedArgs, "call") {
+		t.Fatalf("history normalized args should not duplicate command path: %#v", event.NormalizedArgs)
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestSecretShapedFlagsAreRedactedOrAllowlisted(t *testing.T) {
+	allow := map[string]bool{
+		"auth-type":   true,
+		"author":      true,
+		"manual-code": true,
+	}
+	root := NewRoot("test", "commit", "date")
+	var walk func(*cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		cmd.Flags().VisitAll(func(flag *pflag.Flag) {
+			if !secretShapedFlag(flag.Name) || allow[flag.Name] {
+				return
+			}
+			if !history.IsSensitiveName(flag.Name) {
+				t.Errorf("%s flag --%s looks sensitive but is not redacted", cmd.CommandPath(), flag.Name)
+			}
+		})
+		for _, child := range cmd.Commands() {
+			walk(child)
+		}
+	}
+	walk(root)
+}
+
+func secretShapedFlag(name string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(name, "_", "-"))
+	for _, marker := range []string{"token", "secret", "password", "passphrase", "key", "hash", "code", "bearer", "auth"} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCommandsJSONPreservesAndExtendsContract(t *testing.T) {

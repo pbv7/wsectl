@@ -118,6 +118,21 @@ Default config locations:
 - macOS/Linux: `~/.config/wsectl/config.toml` unless `$XDG_CONFIG_HOME` is set.
 - Windows: `%AppData%\wsectl\config.toml`.
 
+Optional command history is available as a local JSONL file. It is disabled by default and never writes logs to stdout:
+
+```bash
+WSECTL_HISTORY=1 wsectl projects list --json
+wsectl history path --json
+wsectl history list --json --limit 20
+wsectl history clear --keep 1000
+```
+
+For containers, mount state explicitly:
+
+```bash
+WSECTL_HISTORY=1 WSECTL_HISTORY_FILE=/state/history.jsonl wsectl doctor --api --json
+```
+
 Use separate profiles for separate accounts or auth modes:
 
 ```bash

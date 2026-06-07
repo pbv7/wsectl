@@ -29,6 +29,11 @@ output = "auto"
 rate_limit = "1/s"
 timeout = "30s"
 
+[history]
+enabled = false
+path = ""
+include_params = "all"
+
 [profiles.default]
 account_url = "https://company.worksection.com"
 auth_type = "oauth2"
@@ -203,6 +208,75 @@ wsectl profiles add ci \
 ```
 
 `auth login` cannot write to `env:`. Set credential variables before running read commands.
+
+## Optional Local History
+
+Persistent command history is disabled by default. Enable it only when you want a local JSONL action log:
+
+```toml
+[history]
+enabled = true
+path = ""
+include_params = "all"
+```
+
+The default history path is:
+
+- Linux and macOS: `$XDG_STATE_HOME/wsectl/history.jsonl` or `~/.local/state/wsectl/history.jsonl`
+- Windows: `%LocalAppData%\wsectl\history.jsonl`, then `%AppData%\wsectl\history.jsonl`
+
+Container runs commonly resolve the default to `/root/.local/state/wsectl/history.jsonl`. For persistent container state, mount a directory and set
+an explicit path:
+
+```bash
+WSECTL_HISTORY=1 WSECTL_HISTORY_FILE=/state/history.jsonl wsectl projects list --json
+```
+
+PowerShell:
+
+```powershell
+$env:WSECTL_HISTORY = "1"
+$env:WSECTL_HISTORY_FILE = "C:\wsectl-state\history.jsonl"
+wsectl projects list --json
+```
+
+CMD:
+
+```cmd
+set WSECTL_HISTORY=1
+set WSECTL_HISTORY_FILE=C:\wsectl-state\history.jsonl
+wsectl projects list --json
+```
+
+History records command metadata such as command path, action, profile, output mode, exit code, duration, count, warnings, and selected parameters.
+It never records tokens, authorization headers, full Worksection responses, or downloaded file bytes.
+
+`include_params` controls parameter capture in both the structured `params` object and `--param` entries in `normalized_args`:
+
+- `none`: omit the `params` field.
+- `safe`: include stable non-sensitive parameters such as IDs, dates, and enum-like values; omit secrets and free-text query/filter values.
+- `all`: include all parameters, with sensitive values replaced by `[redacted]`.
+
+The `normalized_args` field is a post-Cobra command view, not the literal shell command. It can still include ordinary non-secret free-text flag
+values such as `--query`; `include_params` applies specifically to Worksection parameters and `--param` flag entries.
+
+Each event is capped at 4 KiB. Very long args, params, or warning arrays are truncated with a history warning. History does not auto-trim during
+normal command execution. Appends, `history clear`, and `history clear --keep N` use a short-lived `.lock` file beside the history file, so manual
+compaction does not race concurrent appends. Stale lock files older than 10 minutes are removed automatically to recover from interrupted processes.
+If a fresh lock cannot be acquired quickly, ordinary command results still keep their exit code and may print a redacted diagnostic in verbose/debug
+human modes; history maintenance commands fail with the lock error.
+
+`history list --limit N` returns the latest N valid events. Malformed or partial JSONL lines are skipped with a warning instead of aborting.
+Help, shell-completion, and history-management commands are not recorded to avoid noisy recursive logs.
+
+Inspect or clear history with:
+
+```bash
+wsectl history path --json
+wsectl history list --json --limit 20
+wsectl history clear --keep 1000
+wsectl history clear
+```
 
 ## Managing Existing Config
 

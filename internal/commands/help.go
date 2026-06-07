@@ -58,6 +58,7 @@ func newHelpCommand(_ *state) *cobra.Command {
 			return target.Help()
 		},
 	}
+	setHistorySkip(cmd)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Return help as JSON")
 	cmd.Flags().BoolVar(&full, "full", false, "Include full setup, contracts, safety, limits, and command catalog")
 	return cmd

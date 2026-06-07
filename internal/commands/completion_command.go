@@ -13,6 +13,7 @@ func newCompletionCommand() *cobra.Command {
 		Long:  "Generate a completion script from the current wsectl command tree.",
 		Args:  cobra.NoArgs,
 	}
+	setHistorySkip(cmd)
 	cmd.AddCommand(
 		completionShellCommand("bash", func(cmd *cobra.Command) error {
 			return cmd.Root().GenBashCompletionV2(cmd.OutOrStdout(), true)
@@ -31,7 +32,7 @@ func newCompletionCommand() *cobra.Command {
 }
 
 func completionShellCommand(shell string, generate func(*cobra.Command) error) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:                   shell,
 		Short:                 fmt.Sprintf("Generate the completion script for %s", shell),
 		Args:                  cobra.NoArgs,
@@ -41,4 +42,5 @@ func completionShellCommand(shell string, generate func(*cobra.Command) error) *
 			return generate(cmd)
 		},
 	}
+	return cmd
 }

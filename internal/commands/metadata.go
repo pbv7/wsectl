@@ -17,6 +17,7 @@ const (
 	annotationAgentNotes  = "wsectl.agent_notes"
 	annotationReadOnly    = "wsectl.read_only"
 	annotationAuth        = "wsectl.auth_required"
+	annotationHistorySkip = "wsectl.history.skip"
 )
 
 type commandMetadata struct {
@@ -88,6 +89,10 @@ var metadataByPath = map[string]commandMetadata{
 	"wsectl files list":             apiMeta("files", []string{"get_files"}, allDataModes()...),
 	"wsectl files task-attachments": apiMeta("files", []string{"get_task"}, allDataModes()...),
 	"wsectl help":                   localMeta("discovery", "text", "json"),
+	"wsectl history":                groupMeta("history"),
+	"wsectl history clear":          localMeta("history", "auto", "json", "yaml", "table"),
+	"wsectl history list":           localMeta("history", "auto", "json", "yaml", "table", "ndjson"),
+	"wsectl history path":           localMeta("history", "auto", "json", "yaml", "table"),
 	"wsectl me":                     apiMeta("identity", []string{"me"}, allDataModes()...),
 	"wsectl profiles":               groupMeta("profiles"),
 	"wsectl profiles add":           localMeta("profiles"),
@@ -175,14 +180,15 @@ func applyCommandMetadata(root *cobra.Command) error {
 			if cmd.Example == "" {
 				cmd.Example = commandExample(path)
 			}
-			cmd.Annotations = map[string]string{
-				annotationCategory:    meta.Category,
-				annotationActions:     strings.Join(meta.Actions, "\x1f"),
-				annotationOutputModes: strings.Join(meta.OutputModes, "\x1f"),
-				annotationAgentNotes:  strings.Join(meta.AgentNotes, "\x1f"),
-				annotationReadOnly:    strconv.FormatBool(meta.ReadOnly),
-				annotationAuth:        strconv.FormatBool(meta.AuthRequired),
+			if cmd.Annotations == nil {
+				cmd.Annotations = map[string]string{}
 			}
+			cmd.Annotations[annotationCategory] = meta.Category
+			cmd.Annotations[annotationActions] = strings.Join(meta.Actions, "\x1f")
+			cmd.Annotations[annotationOutputModes] = strings.Join(meta.OutputModes, "\x1f")
+			cmd.Annotations[annotationAgentNotes] = strings.Join(meta.AgentNotes, "\x1f")
+			cmd.Annotations[annotationReadOnly] = strconv.FormatBool(meta.ReadOnly)
+			cmd.Annotations[annotationAuth] = strconv.FormatBool(meta.AuthRequired)
 		}
 		for _, child := range cmd.Commands() {
 			walk(child)
@@ -194,6 +200,13 @@ func applyCommandMetadata(root *cobra.Command) error {
 		return fmt.Errorf("missing command metadata: %s", strings.Join(missing, ", "))
 	}
 	return nil
+}
+
+func setHistorySkip(cmd *cobra.Command) {
+	if cmd.Annotations == nil {
+		cmd.Annotations = map[string]string{}
+	}
+	cmd.Annotations[annotationHistorySkip] = "true"
 }
 
 func commandExample(path string) string {
@@ -225,6 +238,9 @@ var commandExamples = map[string]string{
 	"wsectl files list":             "wsectl files list --project 123 --json",
 	"wsectl files task-attachments": "wsectl files task-attachments 456 --json",
 	"wsectl help":                   "wsectl help agent --full\nwsectl help agent --json",
+	"wsectl history clear":          "wsectl history clear --keep 1000\nwsectl history clear",
+	"wsectl history list":           "wsectl history list --json --limit 20",
+	"wsectl history path":           "wsectl history path --json",
 	"wsectl me":                     "wsectl me --json",
 	"wsectl profiles add":           "wsectl profiles add default --account-url https://company.worksection.com --auth-type oauth2",
 	"wsectl profiles list":          "wsectl profiles list --json",

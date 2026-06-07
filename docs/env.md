@@ -12,6 +12,17 @@ WSECTL_RATE_LIMIT
 WSECTL_DEBUG
 ```
 
+## Optional History
+
+```text
+WSECTL_HISTORY
+WSECTL_HISTORY_FILE
+WSECTL_HISTORY_PARAMS
+```
+
+`WSECTL_HISTORY=1` enables the opt-in local JSONL history file. Use `WSECTL_HISTORY_FILE` to choose a persistent path, especially in containers.
+`WSECTL_HISTORY_FILE` alone does not enable history. `WSECTL_HISTORY_PARAMS` can be `none`, `safe`, or `all`.
+
 ## Credentials
 
 ```text

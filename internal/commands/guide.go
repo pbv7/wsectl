@@ -80,6 +80,7 @@ func rootGuide() guideDocument {
 				"--schema     Static response contract without a Worksection request",
 				"--jq         gojq transform",
 				"--out FILE   Write large output without filling agent context",
+				"History     Optional JSONL file; stdout is never used for logging",
 			},
 		},
 		{
@@ -101,6 +102,7 @@ func rootGuide() guideDocument {
 				"wsectl api schema ACTION        Parameters and static response contract",
 				"wsectl api call ACTION ...      Low-level read-only escape hatch",
 				"wsectl doctor [--json] [--api]  Diagnose configuration and credentials",
+				"wsectl history path|list         Inspect opt-in local action history",
 			},
 		},
 		{
@@ -142,6 +144,7 @@ func agentGuide(full bool, commands []commandInfo) guideDocument {
 				"Use --profile NAME when account context matters.",
 				"Avoid request loops; Worksection documents a 1 request/second limit.",
 				"Never print tokens unless the user explicitly requests token material.",
+				"If history is enabled, inspect history JSONL metadata; do not expect full API bodies there.",
 			},
 		},
 		{
@@ -197,6 +200,7 @@ func agentGuide(full bool, commands []commandInfo) guideDocument {
 					"meta.contract_version and meta.response_shape describe the static output contract.",
 					"Exit codes: 2 usage, 3 auth, 4 permission, 5 network, 6 API, 7 rate limit, 8 truncation.",
 					"Use --fail-on-truncated when incomplete data must fail the run.",
+					"Optional history is written to a JSONL file, never to stdout.",
 				},
 			},
 			guideSection{
@@ -217,6 +221,7 @@ func agentGuide(full bool, commands []commandInfo) guideDocument {
 					"The MVP is read-only. Known Worksection mutation actions are rejected before a request.",
 					"Secrets live in keyring, environment, encrypted-file, or explicit plaintext stores.",
 					"Do not expose WSECTL_ACCESS_TOKEN, WSECTL_REFRESH_TOKEN, or WSECTL_CLIENT_SECRET.",
+					"History is opt-in and stores command metadata only; tokens and response bodies are not recorded.",
 				},
 			},
 			guideSection{

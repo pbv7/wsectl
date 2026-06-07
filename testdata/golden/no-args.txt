@@ -39,6 +39,7 @@ Machine-readable output:
   --schema     Static response contract without a Worksection request
   --jq         gojq transform
   --out FILE   Write large output without filling agent context
+  History     Optional JSONL file; stdout is never used for logging
 
 Safety and limits:
   This build is read-only. Known mutation actions are blocked locally.
@@ -52,6 +53,7 @@ Discovery and diagnostics:
   wsectl api schema ACTION        Parameters and static response contract
   wsectl api call ACTION ...      Low-level read-only escape hatch
   wsectl doctor [--json] [--api]  Diagnose configuration and credentials
+  wsectl history path|list         Inspect opt-in local action history
 
 Shell completion:
   wsectl completion bash|zsh|fish|powershell
