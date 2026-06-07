@@ -151,6 +151,13 @@ type clientResult struct {
 	usedEnvFallback bool
 }
 
+type profileSecret struct {
+	secret          auth.SecretBundle
+	store           auth.SecretStore
+	ref             auth.SecretRef
+	usedEnvFallback bool
+}
+
 func (s *state) client(ctx context.Context) (clientResult, error) {
 	cfg, err := s.loadConfig(ctx)
 	if err != nil {
@@ -160,43 +167,88 @@ func (s *state) client(ctx context.Context) (clientResult, error) {
 	if err != nil {
 		return clientResult{profileName: profileName, profile: p}, &worksection.Error{Code: worksection.CodeUsage, Message: err.Error()}
 	}
-	ref, err := auth.ParseRef(p.SecretRef)
+	secretInfo, err := loadProfileSecret(ctx, p)
 	if err != nil {
 		return clientResult{profileName: profileName, profile: p}, err
+	}
+	secret, err := refreshProfileSecret(ctx, cfg, p, secretInfo)
+	if err != nil {
+		return clientResult{profileName: profileName, profile: p}, err
+	}
+	limiter, err := worksection.NewLimiter(cfg.RateLimit())
+	if err != nil {
+		return clientResult{profileName: profileName, profile: p}, err
+	}
+	return clientResult{
+		client:          worksection.NewClient(nil, profileCredentials(p, secret), cfg.Timeout(), limiter),
+		profileName:     profileName,
+		profile:         p,
+		usedEnvFallback: secretInfo.usedEnvFallback,
+	}, nil
+}
+
+func loadProfileSecret(ctx context.Context, p config.Profile) (profileSecret, error) {
+	ref, err := auth.ParseRef(p.SecretRef)
+	if err != nil {
+		return profileSecret{}, err
 	}
 	store, err := auth.StoreFor(ref)
 	if err != nil {
-		return clientResult{profileName: profileName, profile: p}, err
+		return profileSecret{}, err
 	}
-	usedEnvFallback := false
 	secret, err := store.Get(ctx, ref)
 	if err != nil && ref.Scheme != "env" {
-		if envStore, envErr := auth.StoreFor(auth.SecretRef{Scheme: "env", Name: ""}); envErr == nil {
-			envRef := auth.SecretRef{Scheme: "env", Name: ""}
-			envSecret, envGetErr := envStore.Get(ctx, envRef)
-			if envGetErr == nil && envSecretUsable(firstNonEmpty(p.AuthType, "oauth2"), envSecret) {
-				secret = envSecret
-				store = envStore
-				ref = envRef
-				usedEnvFallback = true
-				err = nil
-			}
+		envSecret, ok := envFallbackSecret(ctx, firstNonEmpty(p.AuthType, "oauth2"))
+		if ok {
+			return profileSecret{
+				secret:          envSecret,
+				store:           auth.EnvStore{},
+				ref:             auth.SecretRef{Scheme: "env", Name: ""},
+				usedEnvFallback: true,
+			}, nil
 		}
 	}
 	if err != nil {
-		return clientResult{profileName: profileName, profile: p}, &worksection.Error{Code: worksection.CodeAuth, Message: err.Error()}
+		return profileSecret{}, &worksection.Error{Code: worksection.CodeAuth, Message: err.Error()}
 	}
-	if firstNonEmpty(p.AuthType, "oauth2") == "oauth2" && auth.NeedsRefresh(secret.AccessExpires, time.Now()) && secret.RefreshToken != "" {
-		oauthClient := auth.HTTPClientWithTimeout(cfg.Timeout())
-		refreshed, refreshErr := auth.Refresh(ctx, oauthClient, secret)
-		if refreshErr != nil {
-			return clientResult{profileName: profileName, profile: p}, &worksection.Error{Code: worksection.CodeAuth, Message: refreshErr.Error()}
-		}
-		secret = refreshed
-		if err := store.Set(ctx, ref, secret); err != nil {
-			return clientResult{profileName: profileName, profile: p}, &worksection.Error{Code: worksection.CodeAuth, Message: "refreshed OAuth token could not be persisted: " + err.Error()}
-		}
+	return profileSecret{secret: secret, store: store, ref: ref}, nil
+}
+
+func envFallbackSecret(ctx context.Context, authType string) (auth.SecretBundle, bool) {
+	envRef := auth.SecretRef{Scheme: "env", Name: ""}
+	envStore, err := auth.StoreFor(envRef)
+	if err != nil {
+		return auth.SecretBundle{}, false
 	}
+	envSecret, err := envStore.Get(ctx, envRef)
+	if err != nil || !envSecretUsable(authType, envSecret) {
+		return auth.SecretBundle{}, false
+	}
+	return envSecret, true
+}
+
+func refreshProfileSecret(ctx context.Context, cfg config.Config, p config.Profile, secretInfo profileSecret) (auth.SecretBundle, error) {
+	secret := secretInfo.secret
+	if !shouldRefreshSecret(p, secret) {
+		return secret, nil
+	}
+	refreshed, err := auth.Refresh(ctx, auth.HTTPClientWithTimeout(cfg.Timeout()), secret)
+	if err != nil {
+		return secret, &worksection.Error{Code: worksection.CodeAuth, Message: err.Error()}
+	}
+	if err := secretInfo.store.Set(ctx, secretInfo.ref, refreshed); err != nil {
+		return secret, &worksection.Error{Code: worksection.CodeAuth, Message: "refreshed OAuth token could not be persisted: " + err.Error()}
+	}
+	return refreshed, nil
+}
+
+func shouldRefreshSecret(p config.Profile, secret auth.SecretBundle) bool {
+	return firstNonEmpty(p.AuthType, "oauth2") == "oauth2" &&
+		auth.NeedsRefresh(secret.AccessExpires, time.Now()) &&
+		secret.RefreshToken != ""
+}
+
+func profileCredentials(p config.Profile, secret auth.SecretBundle) worksection.Credentials {
 	accountURL := firstNonEmpty(secret.AccountURL, p.AccountURL)
 	creds := worksection.Credentials{Mode: worksection.AuthMode(firstNonEmpty(p.AuthType, "oauth2")), AccountURL: accountURL}
 	if creds.Mode == worksection.AuthAdmin {
@@ -204,16 +256,7 @@ func (s *state) client(ctx context.Context) (clientResult, error) {
 	} else {
 		creds.Token = firstNonEmpty(secret.AccessToken, os.Getenv("WSECTL_ACCESS_TOKEN"))
 	}
-	limiter, err := worksection.NewLimiter(cfg.RateLimit())
-	if err != nil {
-		return clientResult{profileName: profileName, profile: p}, err
-	}
-	return clientResult{
-		client:          worksection.NewClient(nil, creds, cfg.Timeout(), limiter),
-		profileName:     profileName,
-		profile:         p,
-		usedEnvFallback: usedEnvFallback,
-	}, nil
+	return creds
 }
 
 func envSecretUsable(authType string, secret auth.SecretBundle) bool {
@@ -238,54 +281,79 @@ func (s *state) runActionWithOptions(cmd *cobra.Command, action string, params m
 	if err != nil {
 		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, err)
 	}
-	s.writeEnvFallbackDiagnostic(cmd, clientInfo)
-	s.writeDiagnostic(cmd, "action=%s profile=%s account_url=%s", action, clientInfo.profileName, firstNonEmpty(clientInfo.profile.AccountURL, "[unknown]"))
-	raw, err := clientInfo.client.CallRaw(cmd.Context(), action, params)
+	raw, err := s.callActionRaw(cmd, clientInfo, action, params)
 	if err != nil {
 		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, err)
 	}
 	if s.format == "raw" {
-		if err := writeRawBytes(cmd.OutOrStdout(), s.out, raw); err != nil {
-			return err
-		}
-		if s.debug {
-			s.writeDiagnostic(cmd, "action=%s response_bytes=%d raw=true", action, len(raw))
-		}
-		{
-			resp, parseErr := worksection.ParseResponse(raw)
-			if parseErr == nil && resp.Status != "" && resp.Status != "ok" {
-				return &worksection.Error{Code: worksection.CodeAPI, Message: "Worksection API returned an error response"}
-			}
-		}
-		return nil
+		return s.writeRawActionResult(cmd, action, raw)
 	}
+	return s.writeParsedActionResult(cmd, action, clientInfo, raw, transform)
+}
+
+func (s *state) callActionRaw(cmd *cobra.Command, clientInfo clientResult, action string, params map[string]string) ([]byte, error) {
+	s.writeEnvFallbackDiagnostic(cmd, clientInfo)
+	s.writeDiagnostic(cmd, "action=%s profile=%s account_url=%s", action, clientInfo.profileName, firstNonEmpty(clientInfo.profile.AccountURL, "[unknown]"))
+	return clientInfo.client.CallRaw(cmd.Context(), action, params)
+}
+
+func (s *state) writeRawActionResult(cmd *cobra.Command, action string, raw []byte) error {
+	if err := writeRawBytes(cmd.OutOrStdout(), s.out, raw); err != nil {
+		return err
+	}
+	if s.debug {
+		s.writeDiagnostic(cmd, "action=%s response_bytes=%d raw=true", action, len(raw))
+	}
+	if rawWorksectionError(raw) {
+		return &worksection.Error{Code: worksection.CodeAPI, Message: "Worksection API returned an error response"}
+	}
+	return nil
+}
+
+func rawWorksectionError(raw []byte) bool {
+	resp, err := worksection.ParseResponse(raw)
+	return err == nil && resp.Status != "" && resp.Status != "ok"
+}
+
+func (s *state) writeParsedActionResult(cmd *cobra.Command, action string, clientInfo clientResult, raw []byte, transform func(json.RawMessage) (json.RawMessage, []string, error)) error {
 	resp, err := worksection.ParseResponse(raw)
 	if err != nil {
 		return err
 	}
 	if resp.Status != "" && resp.Status != "ok" {
-		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, &worksection.Error{Code: worksection.CodeAPI, Message: worksection.ResponseErrorMessage(resp), Details: map[string]any{"action": action}})
+		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, worksectionAPIError(action, resp))
 	}
-	data := resp.OutputData(action)
-	var extraWarnings []string
-	if transform != nil {
-		data, extraWarnings, err = transform(data)
-		if err != nil {
-			return err
-		}
-	}
-	spec, _ := worksection.LookupAction(action)
-	fullEnv := output.SuccessWithContract(action, clientInfo.profileName, clientInfo.profile.AccountURL, data, spec.Response)
-	limited := false
-	data, limited, err = output.LimitData(data, s.limit, spec.Response)
+	env, opts, err := s.actionOutput(action, clientInfo, resp, transform)
 	if err != nil {
 		return err
 	}
-	env := output.SuccessWithContract(action, clientInfo.profileName, clientInfo.profile.AccountURL, data, spec.Response)
-	if fullEnv.Meta.Truncated && !env.Meta.Truncated {
-		env.Meta.Truncated = true
-		env.Meta.Warnings = append(env.Meta.Warnings, fullEnv.Meta.Warnings...)
+	if s.debug {
+		s.writeDiagnostic(cmd, "action=%s response_bytes=%d raw=false", action, len(raw))
 	}
+	return output.Write(cmd.OutOrStdout(), env, opts)
+}
+
+func worksectionAPIError(action string, resp *worksection.Response) error {
+	return &worksection.Error{
+		Code:    worksection.CodeAPI,
+		Message: worksection.ResponseErrorMessage(resp),
+		Details: map[string]any{"action": action},
+	}
+}
+
+func (s *state) actionOutput(action string, clientInfo clientResult, resp *worksection.Response, transform func(json.RawMessage) (json.RawMessage, []string, error)) (output.Envelope, output.Options, error) {
+	spec, _ := worksection.LookupAction(action)
+	data, extraWarnings, err := transformedActionData(resp.OutputData(action), transform)
+	if err != nil {
+		return output.Envelope{}, output.Options{}, err
+	}
+	fullEnv := output.SuccessWithContract(action, clientInfo.profileName, clientInfo.profile.AccountURL, data, spec.Response)
+	data, limited, err := output.LimitData(data, s.limit, spec.Response)
+	if err != nil {
+		return output.Envelope{}, output.Options{}, err
+	}
+	env := output.SuccessWithContract(action, clientInfo.profileName, clientInfo.profile.AccountURL, data, spec.Response)
+	copyTruncationWarnings(&env, fullEnv)
 	if limited {
 		env.Meta.Warnings = append(env.Meta.Warnings, "Client-side --limit was applied; output contains only the first requested records.")
 	}
@@ -293,10 +361,21 @@ func (s *state) runActionWithOptions(cmd *cobra.Command, action string, params m
 	opts := s.outputOptions()
 	opts.KnownFields = spec.KnownFieldNames()
 	opts.Contract = spec.Response
-	if s.debug {
-		s.writeDiagnostic(cmd, "action=%s response_bytes=%d raw=false", action, len(raw))
+	return env, opts, nil
+}
+
+func transformedActionData(data json.RawMessage, transform func(json.RawMessage) (json.RawMessage, []string, error)) (json.RawMessage, []string, error) {
+	if transform == nil {
+		return data, nil, nil
 	}
-	return output.Write(cmd.OutOrStdout(), env, opts)
+	return transform(data)
+}
+
+func copyTruncationWarnings(env *output.Envelope, fullEnv output.Envelope) {
+	if fullEnv.Meta.Truncated && !env.Meta.Truncated {
+		env.Meta.Truncated = true
+		env.Meta.Warnings = append(env.Meta.Warnings, fullEnv.Meta.Warnings...)
+	}
 }
 
 func (s *state) writeActionSchema(cmd *cobra.Command, action string) error {

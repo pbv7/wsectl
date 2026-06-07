@@ -12,222 +12,340 @@ import (
 	"time"
 
 	"github.com/pbv7/wsectl/internal/auth"
+	"github.com/pbv7/wsectl/internal/config"
 	"github.com/pbv7/wsectl/internal/output"
 	"github.com/pbv7/wsectl/internal/worksection"
 	"github.com/spf13/cobra"
 )
 
+type authLoginOptions struct {
+	noBrowser         bool
+	manualCode        bool
+	clientSecretStdin bool
+	adminTokenStdin   bool
+	callbackHost      string
+	callbackCert      string
+	callbackKey       string
+	loginTimeout      string
+	scopes            []string
+	code              string
+	callbackPort      int
+}
+
+type authLoginTarget struct {
+	cfg         config.Config
+	profileName string
+	profile     config.Profile
+	authType    string
+	ref         auth.SecretRef
+	store       auth.SecretStore
+	secret      auth.SecretBundle
+}
+
+type oauthLoginResult struct {
+	secret auth.SecretBundle
+	store  bool
+}
+
 func newAuthCommand(s *state) *cobra.Command {
 	cmd := &cobra.Command{Use: "auth", Short: "Authenticate with Worksection"}
-	var noBrowser, manualCode bool
-	var clientSecretStdin, adminTokenStdin bool
-	var callbackHost, callbackCert, callbackKey string
-	var loginTimeout string
-	var scopes []string
-	var code string
-	var callbackPort int
+	cmd.AddCommand(newAuthLoginCommand(s))
+	cmd.AddCommand(newAuthStatusCommand(s))
+	cmd.AddCommand(newAuthRefreshCommand(s))
+	cmd.AddCommand(newAuthLogoutCommand(s))
+	return cmd
+}
+
+func newAuthLoginCommand(s *state) *cobra.Command {
+	opts := &authLoginOptions{
+		callbackHost: "localhost",
+		callbackPort: 33443,
+		loginTimeout: "10m",
+	}
 	login := &cobra.Command{
 		Use:   "login",
 		Short: "Start OAuth login or store manually supplied credentials",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := s.loadConfig(cmd.Context())
-			if err != nil {
-				return err
-			}
-			name, p, err := cfg.ActiveProfile()
-			if err != nil {
-				return err
-			}
-			authType := firstNonEmpty(p.AuthType, "oauth2")
-			if err := validateAuthLoginFlags(cmd, authType, clientSecretStdin, adminTokenStdin, manualCode); err != nil {
-				return err
-			}
-			ref, err := auth.ParseRef(p.SecretRef)
-			if err != nil {
-				return err
-			}
-			store, err := auth.StoreFor(ref)
-			if err != nil {
-				return err
-			}
-			if err := auth.CheckWritable(cmd.Context(), store, ref); err != nil {
-				return &worksection.Error{Code: worksection.CodeAuth, Message: "secret store is not writable: " + err.Error()}
-			}
-			secret, err := authLoginSecret(cmd, p.AccountURL, authType, clientSecretStdin, adminTokenStdin)
-			if err != nil {
-				return err
-			}
-			if authType == "admin_token" {
-				if secret.AdminToken == "" {
-					return worksection.UsageError("admin token is required for admin-token login; pass --admin-token, --admin-token-stdin, or set WSECTL_ADMIN_TOKEN")
-				}
-				warnPlaintextSecretWrite(cmd, s, ref)
-				if err := storeLoginSecret(cmd.Context(), store, ref, authType, secret); err != nil {
-					return err
-				}
-				raw, _ := json.Marshal(map[string]any{"profile": name, "account_url": p.AccountURL, "stored": true})
-				return output.Write(cmd.OutOrStdout(), output.Success("auth login", name, p.AccountURL, raw), s.outputOptions())
-			}
-			selectedScopes := scopes
-			if len(selectedScopes) == 0 {
-				selectedScopes = auth.ReadOnlyScopes
-			}
-			redirect := fmt.Sprintf("https://%s:%d/callback", callbackHost, callbackPort)
-			if code != "" {
-				exchanged, err := auth.ExchangeCode(cmd.Context(), oauthHTTPClient(cfg.Timeout()), secret.ClientID, secret.ClientSecret, code, redirect)
-				if err != nil {
-					return err
-				}
-				exchanged.AccountURL = firstNonEmpty(exchanged.AccountURL, p.AccountURL)
-				secret = exchanged
-			}
-			if secret.AccessToken == "" && secret.AdminToken == "" {
-				if secret.ClientID == "" || secret.ClientSecret == "" {
-					return worksection.UsageError("client ID and client secret are required for OAuth login; pass --client-id and set WSECTL_CLIENT_SECRET or use --client-secret-stdin")
-				}
-				state, err := auth.RandomState()
-				if err != nil {
-					return err
-				}
-				if manualCode {
-					url := auth.AuthorizationURL(secret.ClientID, redirect, state, selectedScopes)
-					_, err := fmt.Fprintf(cmd.OutOrStdout(), "Open this authorization URL and complete OAuth manually:\n%s\n\nThen set WSECTL_CLIENT_SECRET or pipe it with --client-secret-stdin, and run:\nwsectl auth login --code CODE --client-id %q --callback-host %q --callback-port %d\n", url, secret.ClientID, callbackHost, callbackPort)
-					return err
-				}
-				callback, err := auth.StartOAuthCallback(auth.CallbackOptions{
-					Host:     callbackHost,
-					Port:     callbackPort,
-					CertFile: callbackCert,
-					KeyFile:  callbackKey,
-				}, state)
-				if err != nil {
-					return err
-				}
-				defer callback.Close()
-				url := auth.AuthorizationURL(secret.ClientID, callback.RedirectURI, state, selectedScopes)
-				waitCtx, cancel := loginWaitContext(cmd.Context(), loginTimeout)
-				defer cancel()
-				if shouldWriteHumanNotice(s) {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "OAuth callback listening at %s\nIf your browser warns about the self-signed localhost certificate, continue only for this localhost callback.\n", callback.RedirectURI)
-				}
-				if noBrowser {
-					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Open this authorization URL to continue login:\n%s\n", url); err != nil {
-						return err
-					}
-				} else if err := auth.OpenBrowser(url); err != nil {
-					if _, writeErr := fmt.Fprintf(cmd.OutOrStdout(), "Could not open browser automatically: %v\nOpen this authorization URL to continue login:\n%s\n", err, url); writeErr != nil {
-						return writeErr
-					}
-				}
-				code, err := callback.Wait(waitCtx)
-				if err != nil {
-					return err
-				}
-				exchanged, err := auth.ExchangeCode(waitCtx, oauthHTTPClient(cfg.Timeout()), secret.ClientID, secret.ClientSecret, code, callback.RedirectURI)
-				if err != nil {
-					return err
-				}
-				exchanged.AccountURL = firstNonEmpty(exchanged.AccountURL, p.AccountURL)
-				secret = exchanged
-			}
-			warnPlaintextSecretWrite(cmd, s, ref)
-			if err := storeLoginSecret(cmd.Context(), store, ref, authType, secret); err != nil {
-				return err
-			}
-			raw, _ := json.Marshal(map[string]any{"profile": name, "account_url": p.AccountURL, "stored": true})
-			return output.Write(cmd.OutOrStdout(), output.Success("auth login", name, p.AccountURL, raw), s.outputOptions())
+			return runAuthLogin(cmd, s, opts)
 		},
 	}
 	login.Flags().String("client-id", "", "OAuth client ID")
 	login.Flags().String("client-secret", "", "OAuth client secret")
-	login.Flags().BoolVar(&clientSecretStdin, "client-secret-stdin", false, "Read OAuth client secret from one line on stdin")
+	login.Flags().BoolVar(&opts.clientSecretStdin, "client-secret-stdin", false, "Read OAuth client secret from one line on stdin")
 	login.Flags().String("access-token", "", "Dangerous: directly store an access token")
 	login.Flags().String("refresh-token", "", "Dangerous: directly store a refresh token")
 	login.Flags().String("admin-token", "", "Dangerous: directly store an admin API key")
-	login.Flags().BoolVar(&adminTokenStdin, "admin-token-stdin", false, "Read admin API key from one line on stdin")
-	login.Flags().StringVar(&code, "code", "", "OAuth authorization code to exchange")
-	login.Flags().StringVar(&callbackHost, "callback-host", "localhost", "OAuth callback host")
-	login.Flags().IntVar(&callbackPort, "callback-port", 33443, "OAuth callback port")
-	login.Flags().StringVar(&callbackCert, "callback-cert", "", "OAuth callback TLS certificate")
-	login.Flags().StringVar(&callbackKey, "callback-key", "", "OAuth callback TLS key")
-	login.Flags().StringVar(&loginTimeout, "login-timeout", "10m", "Maximum time to wait for OAuth browser callback")
-	login.Flags().StringArrayVar(&scopes, "scope", nil, "OAuth scope to request; repeat for multiple scopes")
-	login.Flags().BoolVar(&noBrowser, "no-browser", false, "Do not open browser")
-	login.Flags().BoolVar(&manualCode, "manual-code", false, "Use manual code flow")
+	login.Flags().BoolVar(&opts.adminTokenStdin, "admin-token-stdin", false, "Read admin API key from one line on stdin")
+	login.Flags().StringVar(&opts.code, "code", "", "OAuth authorization code to exchange")
+	login.Flags().StringVar(&opts.callbackHost, "callback-host", opts.callbackHost, "OAuth callback host")
+	login.Flags().IntVar(&opts.callbackPort, "callback-port", opts.callbackPort, "OAuth callback port")
+	login.Flags().StringVar(&opts.callbackCert, "callback-cert", "", "OAuth callback TLS certificate")
+	login.Flags().StringVar(&opts.callbackKey, "callback-key", "", "OAuth callback TLS key")
+	login.Flags().StringVar(&opts.loginTimeout, "login-timeout", opts.loginTimeout, "Maximum time to wait for OAuth browser callback")
+	login.Flags().StringArrayVar(&opts.scopes, "scope", nil, "OAuth scope to request; repeat for multiple scopes")
+	login.Flags().BoolVar(&opts.noBrowser, "no-browser", false, "Do not open browser")
+	login.Flags().BoolVar(&opts.manualCode, "manual-code", false, "Use manual code flow")
 	_ = login.MarkFlagFilename("callback-cert", "crt", "pem")
 	_ = login.MarkFlagFilename("callback-key", "key", "pem")
-	cmd.AddCommand(login)
-	cmd.AddCommand(&cobra.Command{
+	return login
+}
+
+func newAuthStatusCommand(s *state) *cobra.Command {
+	return &cobra.Command{
 		Use:   "status",
 		Short: "Show auth status",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := s.loadConfig(cmd.Context())
-			if err != nil {
-				return err
-			}
-			name, p, err := cfg.ActiveProfile()
-			if err != nil {
-				return err
-			}
-			ref, _ := auth.ParseRef(p.SecretRef)
-			store, _ := auth.StoreFor(ref)
-			secret, err := store.Get(cmd.Context(), ref)
-			ok := err == nil && (secret.AccessToken != "" || secret.AdminToken != "")
-			raw, _ := json.Marshal(map[string]any{"profile": name, "account_url": p.AccountURL, "authenticated": ok, "secret_ref": p.SecretRef})
-			return output.Write(cmd.OutOrStdout(), output.Success("auth status", name, p.AccountURL, raw), s.outputOptions())
+			return runAuthStatus(cmd, s)
 		},
-	})
-	cmd.AddCommand(&cobra.Command{
+	}
+}
+
+func newAuthRefreshCommand(s *state) *cobra.Command {
+	return &cobra.Command{
 		Use:   "refresh",
 		Short: "Refresh OAuth token when stored refresh token is available",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := s.loadConfig(cmd.Context())
-			if err != nil {
-				return err
-			}
-			name, p, err := cfg.ActiveProfile()
-			if err != nil {
-				return err
-			}
-			ref, _ := auth.ParseRef(p.SecretRef)
-			store, _ := auth.StoreFor(ref)
-			secret, err := store.Get(cmd.Context(), ref)
-			if err != nil {
-				return err
-			}
-			refreshed, err := auth.Refresh(cmd.Context(), oauthHTTPClient(cfg.Timeout()), secret)
-			if err != nil {
-				return err
-			}
-			if err := store.Set(cmd.Context(), ref, refreshed); err != nil {
-				return err
-			}
-			raw, _ := json.Marshal(map[string]any{"profile": name, "account_url": firstNonEmpty(refreshed.AccountURL, p.AccountURL), "refreshed": true})
-			return output.Write(cmd.OutOrStdout(), output.Success("auth refresh", name, p.AccountURL, raw), s.outputOptions())
+			return runAuthRefresh(cmd, s)
 		},
-	})
-	cmd.AddCommand(&cobra.Command{
+	}
+}
+
+func newAuthLogoutCommand(s *state) *cobra.Command {
+	return &cobra.Command{
 		Use:   "logout",
 		Short: "Delete stored credentials for the active profile",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := s.loadConfig(cmd.Context())
-			if err != nil {
-				return err
-			}
-			name, p, err := cfg.ActiveProfile()
-			if err != nil {
-				return err
-			}
-			ref, _ := auth.ParseRef(p.SecretRef)
-			store, _ := auth.StoreFor(ref)
-			if err := store.Delete(cmd.Context(), ref); err != nil {
-				return err
-			}
-			raw, _ := json.Marshal(map[string]any{"profile": name, "logged_out": true})
-			return output.Write(cmd.OutOrStdout(), output.Success("auth logout", name, p.AccountURL, raw), s.outputOptions())
+			return runAuthLogout(cmd, s)
 		},
-	})
-	return cmd
+	}
+}
+
+func runAuthLogin(cmd *cobra.Command, s *state, opts *authLoginOptions) error {
+	target, err := prepareAuthLogin(cmd, s, opts)
+	if err != nil {
+		return err
+	}
+	if target.authType == "admin_token" {
+		return runAdminTokenLogin(cmd, s, target)
+	}
+	result, err := completeOAuthLogin(cmd, s, opts, target)
+	if err != nil || !result.store {
+		return err
+	}
+	return writeStoredLogin(cmd, s, target, result.secret)
+}
+
+func prepareAuthLogin(cmd *cobra.Command, s *state, opts *authLoginOptions) (authLoginTarget, error) {
+	cfg, err := s.loadConfig(cmd.Context())
+	if err != nil {
+		return authLoginTarget{}, err
+	}
+	name, p, err := cfg.ActiveProfile()
+	if err != nil {
+		return authLoginTarget{}, err
+	}
+	authType := firstNonEmpty(p.AuthType, "oauth2")
+	if err := validateAuthLoginFlags(cmd, authType, opts.clientSecretStdin, opts.adminTokenStdin, opts.manualCode); err != nil {
+		return authLoginTarget{}, err
+	}
+	ref, err := auth.ParseRef(p.SecretRef)
+	if err != nil {
+		return authLoginTarget{}, err
+	}
+	store, err := auth.StoreFor(ref)
+	if err != nil {
+		return authLoginTarget{}, err
+	}
+	if err := auth.CheckWritable(cmd.Context(), store, ref); err != nil {
+		return authLoginTarget{}, &worksection.Error{Code: worksection.CodeAuth, Message: "secret store is not writable: " + err.Error()}
+	}
+	secret, err := authLoginSecret(cmd, p.AccountURL, authType, opts.clientSecretStdin, opts.adminTokenStdin)
+	if err != nil {
+		return authLoginTarget{}, err
+	}
+	return authLoginTarget{cfg: cfg, profileName: name, profile: p, authType: authType, ref: ref, store: store, secret: secret}, nil
+}
+
+func runAdminTokenLogin(cmd *cobra.Command, s *state, target authLoginTarget) error {
+	if target.secret.AdminToken == "" {
+		return worksection.UsageError("admin token is required for admin-token login; pass --admin-token, --admin-token-stdin, or set WSECTL_ADMIN_TOKEN")
+	}
+	return writeStoredLogin(cmd, s, target, target.secret)
+}
+
+func completeOAuthLogin(cmd *cobra.Command, s *state, opts *authLoginOptions, target authLoginTarget) (oauthLoginResult, error) {
+	secret := target.secret
+	redirect := fmt.Sprintf("https://%s:%d/callback", opts.callbackHost, opts.callbackPort)
+	if opts.code != "" {
+		exchanged, err := exchangeLoginCode(cmd, target, secret, opts.code, redirect)
+		return oauthLoginResult{secret: exchanged, store: err == nil}, err
+	}
+	if hasLoginToken(secret) {
+		return oauthLoginResult{secret: secret, store: true}, nil
+	}
+	if err := requireOAuthClientCredentials(secret); err != nil {
+		return oauthLoginResult{}, err
+	}
+	state, err := auth.RandomState()
+	if err != nil {
+		return oauthLoginResult{}, err
+	}
+	if opts.manualCode {
+		return oauthLoginResult{}, writeManualOAuthInstructions(cmd, opts, secret, redirect, state)
+	}
+	exchanged, err := runBrowserOAuthLogin(cmd, s, opts, target, secret, state)
+	return oauthLoginResult{secret: exchanged, store: err == nil}, err
+}
+
+func exchangeLoginCode(cmd *cobra.Command, target authLoginTarget, secret auth.SecretBundle, code, redirect string) (auth.SecretBundle, error) {
+	exchanged, err := auth.ExchangeCode(cmd.Context(), oauthHTTPClient(target.cfg.Timeout()), secret.ClientID, secret.ClientSecret, code, redirect)
+	if err != nil {
+		return auth.SecretBundle{}, err
+	}
+	exchanged.AccountURL = firstNonEmpty(exchanged.AccountURL, target.profile.AccountURL)
+	return exchanged, nil
+}
+
+func hasLoginToken(secret auth.SecretBundle) bool {
+	return secret.AccessToken != "" || secret.AdminToken != ""
+}
+
+func requireOAuthClientCredentials(secret auth.SecretBundle) error {
+	if secret.ClientID != "" && secret.ClientSecret != "" {
+		return nil
+	}
+	return worksection.UsageError("client ID and client secret are required for OAuth login; pass --client-id and set WSECTL_CLIENT_SECRET or use --client-secret-stdin")
+}
+
+func writeManualOAuthInstructions(cmd *cobra.Command, opts *authLoginOptions, secret auth.SecretBundle, redirect, state string) error {
+	url := auth.AuthorizationURL(secret.ClientID, redirect, state, selectedOAuthScopes(opts.scopes))
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "Open this authorization URL and complete OAuth manually:\n%s\n\nThen set WSECTL_CLIENT_SECRET or pipe it with --client-secret-stdin, and run:\nwsectl auth login --code CODE --client-id %q --callback-host %q --callback-port %d\n", url, secret.ClientID, opts.callbackHost, opts.callbackPort)
+	return err
+}
+
+func runBrowserOAuthLogin(cmd *cobra.Command, s *state, opts *authLoginOptions, target authLoginTarget, secret auth.SecretBundle, state string) (auth.SecretBundle, error) {
+	callback, err := auth.StartOAuthCallback(auth.CallbackOptions{
+		Host:     opts.callbackHost,
+		Port:     opts.callbackPort,
+		CertFile: opts.callbackCert,
+		KeyFile:  opts.callbackKey,
+	}, state)
+	if err != nil {
+		return auth.SecretBundle{}, err
+	}
+	defer callback.Close()
+	if err := openOAuthAuthorization(cmd, s, opts, secret, callback.RedirectURI, state); err != nil {
+		return auth.SecretBundle{}, err
+	}
+	waitCtx, cancel := loginWaitContext(cmd.Context(), opts.loginTimeout)
+	defer cancel()
+	code, err := callback.Wait(waitCtx)
+	if err != nil {
+		return auth.SecretBundle{}, err
+	}
+	return exchangeLoginCodeWithRedirect(waitCtx, target, secret, code, callback.RedirectURI)
+}
+
+func openOAuthAuthorization(cmd *cobra.Command, s *state, opts *authLoginOptions, secret auth.SecretBundle, redirectURI, state string) error {
+	url := auth.AuthorizationURL(secret.ClientID, redirectURI, state, selectedOAuthScopes(opts.scopes))
+	if shouldWriteHumanNotice(s) {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "OAuth callback listening at %s\nIf your browser warns about the self-signed localhost certificate, continue only for this localhost callback.\n", redirectURI)
+	}
+	if opts.noBrowser {
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "Open this authorization URL to continue login:\n%s\n", url)
+		return err
+	}
+	if err := auth.OpenBrowser(url); err != nil {
+		_, writeErr := fmt.Fprintf(cmd.OutOrStdout(), "Could not open browser automatically: %v\nOpen this authorization URL to continue login:\n%s\n", err, url)
+		return writeErr
+	}
+	return nil
+}
+
+func exchangeLoginCodeWithRedirect(ctx context.Context, target authLoginTarget, secret auth.SecretBundle, code, redirectURI string) (auth.SecretBundle, error) {
+	exchanged, err := auth.ExchangeCode(ctx, oauthHTTPClient(target.cfg.Timeout()), secret.ClientID, secret.ClientSecret, code, redirectURI)
+	if err != nil {
+		return auth.SecretBundle{}, err
+	}
+	exchanged.AccountURL = firstNonEmpty(exchanged.AccountURL, target.profile.AccountURL)
+	return exchanged, nil
+}
+
+func selectedOAuthScopes(scopes []string) []string {
+	if len(scopes) == 0 {
+		return auth.ReadOnlyScopes
+	}
+	return scopes
+}
+
+func writeStoredLogin(cmd *cobra.Command, s *state, target authLoginTarget, secret auth.SecretBundle) error {
+	warnPlaintextSecretWrite(cmd, s, target.ref)
+	if err := storeLoginSecret(cmd.Context(), target.store, target.ref, target.authType, secret); err != nil {
+		return err
+	}
+	raw, _ := json.Marshal(map[string]any{"profile": target.profileName, "account_url": target.profile.AccountURL, "stored": true})
+	return output.Write(cmd.OutOrStdout(), output.Success("auth login", target.profileName, target.profile.AccountURL, raw), s.outputOptions())
+}
+
+func runAuthStatus(cmd *cobra.Command, s *state) error {
+	cfg, err := s.loadConfig(cmd.Context())
+	if err != nil {
+		return err
+	}
+	name, p, err := cfg.ActiveProfile()
+	if err != nil {
+		return err
+	}
+	ref, _ := auth.ParseRef(p.SecretRef)
+	store, _ := auth.StoreFor(ref)
+	secret, err := store.Get(cmd.Context(), ref)
+	ok := err == nil && (secret.AccessToken != "" || secret.AdminToken != "")
+	raw, _ := json.Marshal(map[string]any{"profile": name, "account_url": p.AccountURL, "authenticated": ok, "secret_ref": p.SecretRef})
+	return output.Write(cmd.OutOrStdout(), output.Success("auth status", name, p.AccountURL, raw), s.outputOptions())
+}
+
+func runAuthRefresh(cmd *cobra.Command, s *state) error {
+	cfg, err := s.loadConfig(cmd.Context())
+	if err != nil {
+		return err
+	}
+	name, p, err := cfg.ActiveProfile()
+	if err != nil {
+		return err
+	}
+	ref, _ := auth.ParseRef(p.SecretRef)
+	store, _ := auth.StoreFor(ref)
+	secret, err := store.Get(cmd.Context(), ref)
+	if err != nil {
+		return err
+	}
+	refreshed, err := auth.Refresh(cmd.Context(), oauthHTTPClient(cfg.Timeout()), secret)
+	if err != nil {
+		return err
+	}
+	if err := store.Set(cmd.Context(), ref, refreshed); err != nil {
+		return err
+	}
+	raw, _ := json.Marshal(map[string]any{"profile": name, "account_url": firstNonEmpty(refreshed.AccountURL, p.AccountURL), "refreshed": true})
+	return output.Write(cmd.OutOrStdout(), output.Success("auth refresh", name, p.AccountURL, raw), s.outputOptions())
+}
+
+func runAuthLogout(cmd *cobra.Command, s *state) error {
+	cfg, err := s.loadConfig(cmd.Context())
+	if err != nil {
+		return err
+	}
+	name, p, err := cfg.ActiveProfile()
+	if err != nil {
+		return err
+	}
+	ref, _ := auth.ParseRef(p.SecretRef)
+	store, _ := auth.StoreFor(ref)
+	if err := store.Delete(cmd.Context(), ref); err != nil {
+		return err
+	}
+	raw, _ := json.Marshal(map[string]any{"profile": name, "logged_out": true})
+	return output.Write(cmd.OutOrStdout(), output.Success("auth logout", name, p.AccountURL, raw), s.outputOptions())
 }
 
 func warnPlaintextSecretWrite(cmd *cobra.Command, s *state, ref auth.SecretRef) {
