@@ -199,6 +199,12 @@ extract_jq() {
   printf '%s' "$raw" | tr -d '"\n'
 }
 
+# extract_ndjson_ids  -> reads NDJSON rows on stdin and prints numeric id
+# values, one per line. Used by fallback discovery to avoid parsing pretty JSON.
+extract_ndjson_ids() {
+  sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\{0,1\}\([0-9][0-9]*\)"\{0,1\}.*/\1/p'
+}
+
 # file_in_task TASK_ID  -> first file ID attached to the task or any of its
 # comments. Prints the ID, prints a diagnostic of what was checked to stderr.
 file_in_task() {
@@ -220,13 +226,14 @@ file_in_task() {
 discover_file_id() {
   local project="$1"
   local task_ids fid task
-  task_ids="$($WSECTL tasks list --project "$project" --jq '[.data[].id][:5][]' --json 2>/dev/null | tr -d '"')" || return 0
-  for task in $task_ids; do
+  task_ids="$($WSECTL tasks list --project "$project" --ndjson --fields id --limit 5 2>/dev/null | extract_ndjson_ids)" || return 0
+  while IFS= read -r task; do
+    [[ -z "$task" ]] && continue
     fid="$(file_in_task "$task")"
     if [[ -n "$fid" && "$fid" != "null" ]]; then
       printf '%s' "$fid"; return 0
     fi
-  done
+  done <<< "$task_ids"
 }
 
 echo "wsectl live probe"
