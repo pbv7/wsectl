@@ -53,6 +53,35 @@ pre-trusted certificate.
 
 The MVP blocks known mutation actions locally. This protects both first-class commands and `wsectl api call`.
 
+## Binary Distribution And Gatekeeper
+
+Released binaries are built by GoReleaser in GitHub Actions and are **not** Apple-signed or notarized. Two consequences:
+
+- The Homebrew cask runs a postflight hook on macOS that strips the `com.apple.quarantine` attribute from the installed
+  `wsectl` binary. Without this hook, the first invocation of `wsectl` would be blocked by Gatekeeper with a
+  "developer cannot be verified" prompt. The hook is a no-op on Linux.
+- `brew install pbv7/tap/wsectl` therefore trades one layer of macOS defense for installation ergonomics. The chain of
+  trust is the tap itself: a compromise of `pbv7/homebrew-tap` or the release pipeline could ship a binary that runs
+  without a Gatekeeper warning.
+
+If you want Gatekeeper enforcement, use `go install` instead of Homebrew:
+
+```bash
+go install github.com/pbv7/wsectl/cmd/wsectl@latest
+```
+
+This builds from source on your machine; Gatekeeper does not apply.
+
+To verify a downloaded archive against the release checksums:
+
+```bash
+shasum -a 256 wsectl_<version>_<os>_<arch>.tar.gz
+# compare with the matching line in checksums.txt from the GitHub release
+```
+
+Apple Developer Program signing and notarization are out of scope for the current release cadence; revisit when project
+audience justifies the setup cost.
+
 ## CI Recommendations
 
 Use environment credentials and short-lived CI secrets:
