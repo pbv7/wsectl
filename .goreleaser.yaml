@@ -112,3 +112,12 @@ homebrew_casks:
     directory: Casks
     binaries:
       - wsectl
+    # The binary is not Apple-signed or notarized. Strip the macOS
+    # quarantine attribute on install so Gatekeeper does not block the
+    # CLI with "developer cannot be verified" on first run.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/wsectl"]
+          end

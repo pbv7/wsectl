@@ -51,7 +51,7 @@ jobs:
           repo-checkout: false
       - uses: goreleaser/goreleaser-action@v7
         with:
-          version: v2.7.0
+          version: v2.16.0
           args: check
 
   race:

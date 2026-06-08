@@ -55,9 +55,11 @@ On a clean machine if possible:
 ```bash
 brew tap pbv7/tap
 brew install wsectl
-brew test wsectl
 wsectl version    # prints "wsectl 0.1.0"
 ```
+
+`brew test` is intentionally not used here — `wsectl` is published as a Cask, which Homebrew does not run user-defined test stanzas for.
+The post-install hook in the cask strips the macOS quarantine attribute so the binary runs without a Gatekeeper prompt on first launch.
 
 Also check:
 
