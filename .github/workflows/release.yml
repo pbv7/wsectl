@@ -4,23 +4,77 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (for retries; must already exist)'
+        required: true
 
 permissions:
   contents: write
 
 jobs:
-  goreleaser:
+  token-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify HOMEBREW_TAP_TOKEN is configured
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "HOMEBREW_TAP_TOKEN is not configured. See docs/release.md."
+            exit 1
+          fi
+
+  preflight:
+    needs: token-check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: make check
+      - run: go test -race ./...
+      - run: make coverage-check
+      - run: make lint-md
+      - run: make lint-workflows
+      - run: npm audit --audit-level=high
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+      - uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: '1.26'
+          go-package: ./...
+          repo-checkout: false
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.16.0
+          args: check
+
+  goreleaser:
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - uses: goreleaser/goreleaser-action@v7
         with:
-          version: v2.7.0
+          version: v2.16.0
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

@@ -1,64 +1,102 @@
 # Release
 
-Releases use GoReleaser and are intended to run from Git tags.
+Releases use GoReleaser triggered from Git tags. The workflow publishes a public GitHub release and updates the Homebrew tap in
+the same run. Both operations use separate tokens — `GITHUB_TOKEN` (built into Actions) for the release, and `HOMEBREW_TAP_TOKEN`
+(a fine-grained PAT) for the tap push.
 
-## Pre-Release Checks
+## One-Time Setup
 
-Before tagging:
+The release workflow publishes a Homebrew cask to `pbv7/homebrew-tap`. This requires a fine-grained PAT, configured once:
 
-```bash
-make check
-make race
-make lint-all
-make vuln
-make release-check
-```
+1. Generate a token at <https://github.com/settings/personal-access-tokens/new> scoped to **only**
+   `pbv7/homebrew-tap` with `Contents: read+write`.
+2. Add to `pbv7/wsectl` → Settings → Secrets and variables → Actions → New repository secret named
+   `HOMEBREW_TAP_TOKEN`.
 
-`make lint-all` runs Go linting, Markdown linting, and GitHub Actions workflow linting. Markdownlint is managed through `package-lock.json`, and
-actionlint is managed through Go's `tool` directive. Markdown prose uses the configured line-length rule while code blocks, headings, and tables are
-exempt from that rule.
+Without this secret, the release workflow fails at the `token-check` job before any artifacts are produced.
 
-Run optional live smoke tests with real read-only credentials before the first public release.
+## Pre-Tag Checklist
 
-`make coverage-check` is a POSIX-shell Makefile target with `COVERAGE_MIN ?= 70.0`. Keep it as a visibility gate until coverage is intentionally
-raised above the threshold; Windows release validation should use the direct Go test commands from CI.
+Run locally on a clean working tree:
 
-Before tagging, run the end-to-end live probe against a real read-only account:
+1. `make ci` — full local gates (check, race, lint-all, vuln, release-check)
+2. `make coverage-check` — coverage gate against the configured minimum
+3. `make release-snapshot` — local artifacts build cleanly
+4. Inspect `dist/`:
+   - Archives per OS/arch (`*.tar.gz`, `*.zip`)
+   - `checksums.txt`
+   - `*.sbom.json` per archive
+   - Generated cask at `dist/homebrew/Casks/wsectl.rb`
+5. Inspect generated release notes in the snapshot output: confirm grouped sections
+   (Features, Bug Fixes, Performance, Refactoring, Dependencies, Others), no missing-or-duplicate entries
+6. `WSECTL_HISTORY=0 make live-probe` against your test account: confirm end-to-end binary behavior on real data
 
-```bash
-make live-probe
-```
+Item 6 is the only check that exercises a real Worksection account. Skipping it means tagging blind on live behavior.
+(`make ci` is fine locally because the developer machine has the toolchain. The release workflow uses dedicated Actions
+for the same steps, since GitHub-hosted runners do not have those binaries preinstalled.)
 
-The probe uses whatever auth your normal `wsectl` commands use, so a profile previously set up with `wsectl auth login`
-is sufficient. For one-shot runs without a profile, export `WSECTL_ACCOUNT_URL` plus `WSECTL_ACCESS_TOKEN`
-(or `WSECTL_ADMIN_TOKEN`) before running.
+## Tag And Push
 
-`make live-probe` runs `scripts/live-probe.sh`, which exercises the binary end-to-end: doctor, identity, projects, tasks, comments,
-file listing, file download, output formats (`--json`, `--ndjson`, `--table`, `--fields`, `--limit`, `--schema`), low-level
-`api call`, and the exit-code contract for negative cases. The script self-bootstraps IDs from `projects list` and `tasks list`;
-override with `WSECTL_PROBE_PROJECT`, `WSECTL_PROBE_TASK`, or `WSECTL_PROBE_FILE` if you want to pin specific resources.
-Set `WSECTL=./dist/wsectl` (or any built binary path) to verify release artifacts instead of `go run`.
-
-The probe specifically verifies the same-host download policy: a successful `files download` confirms bearer credentials
-reached the configured Worksection account without leaking cross-host.
-
-## Snapshot Build
-
-After the repository is initialized with Git, validate local release artifacts:
+Use annotated semver tags:
 
 ```bash
-make release-snapshot
-```
-
-Snapshot artifacts are written to `dist/`, which is ignored by Git.
-
-## Tag Release
-
-Use semantic version tags:
-
-```bash
-git tag v0.1.0
+git tag -a v0.1.0 -m "Release v0.1.0"
 git push origin v0.1.0
+gh run watch
 ```
 
-The GitHub Actions release workflow runs GoReleaser for tags matching `v*`. Release archives include `README.md`, `LICENSE`, and `docs/`.
+The release workflow runs three jobs in sequence: `token-check` → `preflight` → `goreleaser`. Each step's failure
+mode is handled in Recovery below.
+
+## Post-Release Verification
+
+On a clean machine if possible:
+
+```bash
+brew tap pbv7/tap
+brew install wsectl
+brew test wsectl
+wsectl version    # prints "wsectl 0.1.0"
+```
+
+Also check:
+
+- GitHub release at <https://github.com/pbv7/wsectl/releases> is public (not draft), with grouped changelog
+  and all assets present
+- `https://github.com/pbv7/homebrew-tap/blob/main/Casks/wsectl.rb` exists with the new version
+
+## Recovery
+
+Partial-publish is possible because the GitHub release publish and the tap push are not transactional:
+
+- **Workflow fails at `token-check` or `preflight`**: no artifacts published. Fix the cause on `main`, then delete
+  the tag and retag:
+
+  ```bash
+  git tag -d v0.1.0
+  git push origin :refs/tags/v0.1.0
+  # ...fix...
+  git tag -a v0.1.0 -m "Release v0.1.0"
+  git push origin v0.1.0
+  ```
+
+- **Binary release succeeds, tap push fails**: the GitHub release is already public. Do not delete it.
+  Verify `HOMEBREW_TAP_TOKEN`, then re-run the release workflow on the same tag:
+
+  ```bash
+  gh workflow run release.yml -f tag=v0.1.0
+  ```
+
+  If GoReleaser reports asset conflicts during the retry, resolve them (the simplest path is to delete the
+  conflicting assets from the GitHub release UI) before re-running. The tap push will then proceed.
+
+- **Bad version tagged accidentally** (typo, wrong commit): if no one has installed yet, delete the GitHub
+  release and tag, fix, retag. Once users have installed, treat the tag as published and ship the fix
+  as `v0.1.1`.
+
+## Notes On Naming
+
+- GitHub repository: `pbv7/homebrew-tap`
+- Homebrew tap name: `pbv7/tap` (Homebrew strips the `homebrew-` prefix automatically)
+
+`brew install pbv7/tap/wsectl` and `brew install pbv7/homebrew-tap/wsectl` reach the same cask.

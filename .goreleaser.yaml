@@ -18,13 +18,15 @@ builds:
       - arm64
 
 archives:
-  - formats: [tar.gz]
+  - id: wsectl
+    formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - README.md
       - LICENSE
-      - docs/**/*
+      - src: docs/*.md
+        dst: docs
     format_overrides:
       - goos: windows
         formats: [zip]
@@ -34,3 +36,79 @@ checksum:
 
 sboms:
   - artifacts: archive
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - 'typo'
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([^)]+\))??!?:.+$'
+      order: 0
+    - title: 'Bug Fixes'
+      regexp: '^.*?fix(\([^)]+\))??!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\([^)]+\))??!?:.+$'
+      order: 2
+    - title: Refactoring
+      regexp: '^.*?refactor(\([^)]+\))??!?:.+$'
+      order: 3
+    - title: Dependencies
+      regexp: '^.*?build\(deps[^)]*\)!?:.+$'
+      order: 4
+    - title: Others
+      order: 999
+
+release:
+  github:
+    owner: pbv7
+    name: wsectl
+  name_template: "{{.ProjectName}} v{{.Version}}"
+  footer: |
+    ## Installation
+
+    ### Homebrew (macOS/Linux)
+    ```bash
+    brew install pbv7/tap/wsectl
+    ```
+
+    ### Go Install
+    ```bash
+    go install github.com/pbv7/wsectl/cmd/wsectl@latest
+    ```
+
+    ### Binary Download
+    Download the appropriate archive from the assets below, extract,
+    and place `wsectl` (or `wsectl.exe`) on your `PATH`. Verify against
+    `checksums.txt` if needed.
+    {{- if .PreviousTag }}
+
+    ---
+    **Full Changelog**: https://github.com/pbv7/wsectl/compare/{{ .PreviousTag }}...{{ .Tag }}
+    {{- end }}
+
+homebrew_casks:
+  - name: wsectl
+    ids: [wsectl]
+    repository:
+      owner: pbv7
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/pbv7/wsectl
+    description: "Unofficial command-line client for Worksection"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    directory: Casks
+    binaries:
+      - wsectl

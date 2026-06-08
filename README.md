@@ -42,6 +42,12 @@ response shape, known fields, conditional `extra` fields, count path, OAuth scop
 
 ## Install
 
+Homebrew (macOS/Linux):
+
+```bash
+brew install pbv7/tap/wsectl
+```
+
 From source:
 
 ```bash
