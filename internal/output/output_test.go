@@ -132,6 +132,12 @@ func TestWriteYAMLTableAndJQ(t *testing.T) {
 	if !strings.Contains(yamlOut.String(), "status: ok") {
 		t.Fatalf("unexpected yaml: %s", yamlOut.String())
 	}
+	if !strings.Contains(yamlOut.String(), "id: \"1\"") || !strings.Contains(yamlOut.String(), "name: Ada") {
+		t.Fatalf("yaml data not rendered as a mapping: %s", yamlOut.String())
+	}
+	if strings.Contains(yamlOut.String(), "- 91") || strings.Contains(yamlOut.String(), "- 123") {
+		t.Fatalf("yaml data leaked as raw bytes: %s", yamlOut.String())
+	}
 	var tableOut bytes.Buffer
 	if err := Write(&tableOut, env, Options{Format: "table"}); err != nil {
 		t.Fatal(err)
