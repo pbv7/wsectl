@@ -669,6 +669,53 @@ func TestRawQuietSuppressesWarnings(t *testing.T) {
 	}
 }
 
+func TestTableUsesActionCuratedColumns(t *testing.T) {
+	// get_users declares cols("id","name","email","role") at the action layer.
+	// Without --fields the table renderer must honor those curated columns,
+	// not fall back to the alphabetical preferredKeys heuristic. Returning
+	// extra fields (department, group) lets us prove the curated set wins
+	// rather than coincidentally matching the default order.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","data":[
+			{"id":"1","name":"Ada","email":"ada@example.com","role":"admin","department":"Eng","group":{"id":"7","name":"Core"}}
+		]}`))
+	}))
+	defer server.Close()
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_ACCOUNT_URL", server.URL)
+	t.Setenv("WSECTL_ACCESS_TOKEN", "token")
+
+	out, err := execute("users", "list", "--output", "table")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ID", "NAME", "EMAIL", "ROLE"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected curated column %q in header:\n%s", want, out)
+		}
+	}
+	for _, unwanted := range []string{"DEPARTMENT", "GROUP"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("non-curated column %q rendered; action TableColumns not honored:\n%s", unwanted, out)
+		}
+	}
+	// Order: id, name, email, role — exactly as cols(...) declares.
+	positions := []int{
+		strings.Index(out, "ID"),
+		strings.Index(out, "NAME"),
+		strings.Index(out, "EMAIL"),
+		strings.Index(out, "ROLE"),
+	}
+	for i := 1; i < len(positions); i++ {
+		if positions[i] <= positions[i-1] {
+			t.Fatalf("curated column order not preserved (positions %v):\n%s", positions, out)
+		}
+	}
+	if strings.Contains(out, "Note: table output shows") {
+		t.Fatalf("omitted-columns note should not appear when curated set is used:\n%s", out)
+	}
+}
+
 func TestVerboseEnvFallbackDiagnostic(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer env-token" {
