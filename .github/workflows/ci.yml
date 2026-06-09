@@ -21,6 +21,21 @@ jobs:
           go-version-file: go.mod
       - run: go test ./...
 
+  # Single fan-in check that passes only when every test matrix leg passes.
+  # Used as the required status check in the main-branch ruleset so the
+  # ruleset does not need to enumerate matrix variants.
+  tests:
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any test matrix leg failed or was cancelled
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "test matrix result: ${{ needs.test.result }}"
+            exit 1
+          fi
+
   quality:
     runs-on: ubuntu-latest
     steps:

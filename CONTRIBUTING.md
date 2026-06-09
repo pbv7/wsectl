@@ -2,6 +2,70 @@
 
 `wsectl` is pre-release. Prefer small, focused changes that keep the read-only CLI correct, scriptable, and safe.
 
+## Branch Protection And PR Flow
+
+`main` is protected by a GitHub repository ruleset
+([`.github/rulesets/main-branch.json`](.github/rulesets/main-branch.json)):
+
+- All changes land via pull request. Direct `git push origin main` is rejected.
+- PRs cannot merge until `tests`, `quality`, `race`, and `dependency-review` pass.
+- Merges require linear history (squash-merge produces this automatically).
+- Force-push and deletion of `main` are blocked.
+
+Release tags (`v*`) are protected by a separate ruleset
+([`.github/rulesets/release-tags.json`](.github/rulesets/release-tags.json)) that
+blocks force-push and deletion.
+
+### Normal Flow
+
+```bash
+git switch -c my-change
+# ...edit, commit...
+git push -u origin my-change
+gh pr create --fill
+# wait for checks, then:
+gh pr merge --squash --delete-branch
+```
+
+### Admin Bypass
+
+Repository admins can bypass the ruleset when merging a PR — useful for urgent
+fixes when a check is broken for reasons unrelated to the change. Use sparingly:
+
+```bash
+gh pr merge --squash --admin
+```
+
+`--admin` requires admin role and uses the "Merge without waiting for
+requirements to be met" path; it does not allow direct pushes to `main`
+(bypass mode is `pull_request`, not `always`).
+
+For tag operations during release recovery (e.g., re-tagging after a botched
+push), the admin bypass on the tag ruleset is `always`, so admins can
+`git push --force-with-lease origin vX.Y.Z` directly when needed. See
+[`docs/release.md`](docs/release.md#recovery).
+
+### Updating The Rulesets
+
+The JSON files in `.github/rulesets/` are the source of truth. Apply changes
+with:
+
+```bash
+scripts/apply-rulesets.sh                # apply to pbv7/wsectl
+DRY_RUN=1 scripts/apply-rulesets.sh      # preview without calling the API
+```
+
+The script is idempotent (matched by `.name`) and also enables repo-level
+`delete_branch_on_merge`. Requires `gh` (authenticated) and `jq`.
+
+If you change the ruleset via the GitHub web UI directly, re-export the JSON
+from the API and commit it so the file does not drift:
+
+```bash
+gh api repos/pbv7/wsectl/rulesets > /tmp/rulesets.json
+# ...extract the relevant ruleset and update .github/rulesets/*.json...
+```
+
 ## Local Checks
 
 Run the fast gate before handing off changes:
