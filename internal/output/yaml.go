@@ -37,6 +37,17 @@ func YAML(env Envelope) ([]byte, error) {
 	return yaml.Marshal(out)
 }
 
+// clearFlowStyle resets Style on every node so collections marshal as
+// block style and map keys render unquoted.
+//
+// One might expect to scope this to MappingNode/SequenceNode to preserve
+// scalar quoting choices, but the yaml.v3 emitter already uses Tag (set
+// by yaml.Unmarshal during JSON parse) to decide quoting at output time:
+// !!str values that look like bool/null/number keep their quotes
+// automatically, while !!int values stay unquoted. Clearing Style on
+// scalars is therefore safe for JSON-derived input AND prevents JSON's
+// double-quoted scalar style from leaking into rendered map keys
+// (a regression where keys come out as `"id": 1` instead of `id: 1`).
 func clearFlowStyle(n *yaml.Node) {
 	if n == nil {
 		return

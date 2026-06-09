@@ -201,6 +201,29 @@ func TestApplyJQSingleResultHasNoTrailer(t *testing.T) {
 	}
 }
 
+func TestYAMLPreservesScalarQuotingAndKeyStyle(t *testing.T) {
+	// String values that look like booleans, nulls, or numbers must keep
+	// their quoting on YAML output — otherwise a round-trip would reparse
+	// them as different types. At the same time, map keys must render
+	// unquoted in block style so the envelope reads naturally.
+	env := Success("api", "default", "", json.RawMessage(`{"flag":"true","missing":"null","numeric_id":"42"}`))
+	raw, err := YAML(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, want := range []string{`flag: "true"`, `missing: "null"`, `numeric_id: "42"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("scalar value quoting dropped (%s):\n%s", want, text)
+		}
+	}
+	for _, bad := range []string{`"flag":`, `"missing":`, `"numeric_id":`} {
+		if strings.Contains(text, bad) {
+			t.Fatalf("map key rendered with leftover JSON quotes (%s):\n%s", bad, text)
+		}
+	}
+}
+
 func TestYAMLPreservesLargeIntegerPrecision(t *testing.T) {
 	// 9007199254740993 = 2^53 + 1, the canonical value that loses
 	// precision when routed through float64. The YAML output must
