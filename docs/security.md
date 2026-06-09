@@ -8,16 +8,43 @@ This project is not affiliated with Worksection. Users are responsible for grant
 
 ## Credential Storage
 
-Secret backends:
+`wsectl` supports four secret backends, selected per profile via `secret_ref`:
 
-- `keyring`: default. Uses OS-backed keychains or Pass through `github.com/99designs/keyring`; the library's File and KeyCtl backends are
-  intentionally disabled.
-- `env`: read-only. Intended for CI, containers, and ephemeral automation.
-- `encrypted-file`: explicit opt-in. Requires `WSECTL_SECRET_PASSPHRASE` and writes versioned Argon2id/AES-GCM payloads.
-- `plaintext`: explicit opt-in only. Intended for controlled testing, not normal use. Human-mode login warns on stderr before writing plaintext
-  secrets.
+| Backend          | Description                                                                                                      | Availability                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `keyring`        | OS-native credential store (macOS Keychain, Windows Credential Manager, Secret Service, KWallet, Pass). Default. | Depends on build and OS — see below. |
+| `env`            | Read-only environment variables. Intended for CI, containers, ephemeral automation.                              | All builds, all OS.                  |
+| `encrypted-file` | Versioned Argon2id/AES-GCM file. Requires `WSECTL_SECRET_PASSPHRASE`.                                            | All builds, all OS.                  |
+| `plaintext`      | Unencrypted JSON file. Explicit opt-in only; human-mode login warns on stderr before writing.                    | All builds, all OS. Not recommended. |
 
-Tokens are not stored in `config.toml`. Profiles contain a `secret_ref`, not the secret itself.
+Tokens are never written to `config.toml`. Profiles hold a `secret_ref` only.
+
+The 99designs/keyring `File` and `KeyCtl` backends are intentionally disabled. Use `encrypted-file` instead of the
+library's File backend (stronger guarantees, clearer errors); KeyCtl secrets do not survive a reboot.
+
+### Keyring Backend Availability By Build
+
+The underlying OS backend behind `keyring:` depends on whether the binary was compiled with cgo, because the macOS
+Keychain backend in `github.com/99designs/keyring` is gated by `//go:build darwin && cgo`. Other OS-native backends do
+not need cgo.
+
+| OS      | Native backend                  | Needs cgo | Release artifacts (Homebrew, GitHub release) | `go install` (default `CGO_ENABLED=1` on macOS) | `go install` with `CGO_ENABLED=0` |
+| ------- | ------------------------------- | --------- | -------------------------------------------- | ----------------------------------------------- | --------------------------------- |
+| macOS   | Keychain (Security.framework)   | yes       | available                                    | available                                       | **unavailable**                   |
+| Linux   | Secret Service (dbus) / KWallet | no        | available                                    | available                                       | available                         |
+| Linux   | Pass (CLI shellout)             | no        | available                                    | available                                       | available                         |
+| Windows | Credential Manager              | no        | available                                    | available                                       | available                         |
+
+If the `keyring` backend is not available for your build and OS, `wsectl auth login` fails with:
+
+```text
+secret store is not writable: Specified keyring backend not available
+```
+
+Migrate the profile to `encrypted-file:PATH` (portable, requires a passphrase) or `env:` (read-only, for CI), or
+rebuild with `CGO_ENABLED=1`. See [`auth.md`](auth.md#secret-stores) for the migration steps and
+[`adr/0001-cgo-and-keyring-backends.md`](adr/0001-cgo-and-keyring-backends.md) for the rationale and trade-offs
+behind the build matrix.
 
 ## Token Output
 

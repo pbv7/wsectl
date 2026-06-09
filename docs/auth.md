@@ -193,20 +193,28 @@ WSECTL_ACCOUNT_URL
 
 ## Secret Stores
 
-- `keyring`: default OS keychain backend. `wsectl` enables macOS Keychain, Windows Credential Manager, Linux Secret Service, KWallet, and Pass. It
-  intentionally disables the 99designs File and KeyCtl backends.
-- `env`: read-only environment backend.
-- `encrypted-file`: explicit portable fallback, protected by `WSECTL_SECRET_PASSPHRASE` with versioned Argon2id/AES-GCM payloads. Legacy payloads are
-  read and rewritten in the new format on the next successful save.
-- `plaintext`: explicit opt-in only. Human-mode login prints a warning to stderr before writing plaintext secrets.
+Four backends are supported: `keyring`, `env`, `encrypted-file`, `plaintext`. The full table — including which
+backend is available on which OS and in which build variant — lives in
+[`security.md`](security.md#credential-storage). Quick orientation:
+
+- `keyring` is the default. Uses the OS-native credential store (Keychain, Credential Manager, Secret Service,
+  KWallet, Pass). Availability depends on the build; macOS Keychain in particular requires a cgo-enabled build.
+- `env` is read-only. Intended for CI, containers, and ephemeral automation.
+- `encrypted-file` is the portable fallback. Protected by `WSECTL_SECRET_PASSPHRASE` with versioned Argon2id/AES-GCM
+  payloads. Legacy payloads are read and rewritten in the new format on the next save. Use this when `keyring` is
+  unavailable or you need a profile that travels between machines.
+- `plaintext` is explicit opt-in only. Human-mode login prints a warning to stderr before writing plaintext secrets.
 
 No command prints tokens by default.
 
-`auth login` verifies that the selected secret store is writable before starting browser OAuth. Environment credentials are read-only, so use
-`keyring`, `encrypted-file`, or `plaintext` for interactive login.
+`auth login` verifies that the selected secret store is writable before starting browser OAuth. Environment
+credentials are read-only, so use `keyring`, `encrypted-file`, or `plaintext` for interactive login.
 
-If doctor reports that a keyring backend is not enabled, re-run `auth login` with a supported OS keychain backend, or explicitly migrate the profile
-to `encrypted-file:PATH` and log in again. File and KeyCtl keyring backends are intentionally disabled.
+If doctor reports `secret store is not writable: Specified keyring backend not available`, the build does not
+include a working OS keyring backend for this platform (most commonly: a `CGO_ENABLED=0` build on macOS, which
+drops the Keychain backend). Either reinstall the release artifact, rebuild from source with `CGO_ENABLED=1`, or
+migrate the profile to `encrypted-file:PATH` and log in again. See
+[`security.md`](security.md#keyring-backend-availability-by-build) for the full matrix.
 
 Portable encrypted-file profile:
 

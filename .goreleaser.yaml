@@ -7,6 +7,22 @@ builds:
     binary: wsectl
     env:
       - CGO_ENABLED=0
+    # darwin needs cgo to compile the macOS Keychain backend in
+    # github.com/99designs/keyring (//go:build darwin && cgo). linux/windows
+    # native keyring backends are pure-Go. See docs/adr/0001-cgo-and-keyring-backends.md.
+    overrides:
+      - goos: darwin
+        goarch: arm64
+        env:
+          - CGO_ENABLED=1
+          - CC=clang -arch arm64
+          - CXX=clang++ -arch arm64
+      - goos: darwin
+        goarch: amd64
+        env:
+          - CGO_ENABLED=1
+          - CC=clang -arch x86_64
+          - CXX=clang++ -arch x86_64
     ldflags:
       - -s -w -X github.com/pbv7/wsectl/internal/app.Version={{.Version}} -X github.com/pbv7/wsectl/internal/app.Commit={{.Commit}} -X github.com/pbv7/wsectl/internal/app.Date={{.Date}}
     goos:
@@ -27,6 +43,8 @@ archives:
       - LICENSE
       - src: docs/*.md
         dst: docs
+      - src: docs/adr/*.md
+        dst: docs/adr
     format_overrides:
       - goos: windows
         formats: [zip]

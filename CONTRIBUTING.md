@@ -34,6 +34,27 @@ declared in `go.mod` against GitHub Actions workflow files.
 
 `make vuln` runs `govulncheck` for Go packages and `npm audit --audit-level=high` for the Markdown lint toolchain.
 
+## Building From Source
+
+`go install ./cmd/wsectl` and `go build ./cmd/wsectl` work out of the box. The set of credential backends in the
+resulting binary depends on `CGO_ENABLED`:
+
+| Build                              | Keyring backends compiled in                             |
+| ---------------------------------- | -------------------------------------------------------- |
+| Default (`CGO_ENABLED=1` on macOS) | Keychain (macOS), Secret Service, KWallet, Pass, WinCred |
+| `CGO_ENABLED=0` on macOS           | Secret Service, KWallet, Pass, WinCred — **no Keychain** |
+| Default on Linux / Windows         | Secret Service, KWallet, Pass, WinCred (none need cgo)   |
+
+`encrypted-file`, `env`, and `plaintext` backends are pure-Go and always available.
+
+Why: the macOS Keychain backend in `github.com/99designs/keyring` calls Apple's Security.framework through cgo
+(`//go:build darwin && cgo`). Building wsectl on macOS with `CGO_ENABLED=0` silently drops it. See
+[`docs/security.md`](docs/security.md#keyring-backend-availability-by-build) for the runtime matrix and
+[`docs/adr/0001-cgo-and-keyring-backends.md`](docs/adr/0001-cgo-and-keyring-backends.md) for the decision history.
+
+If you are testing release-pipeline changes that affect cgo or signing, `make release-snapshot` produces a `dist/`
+tree matching the release format.
+
 ## Documentation
 
 Command reference docs are generated from command metadata:

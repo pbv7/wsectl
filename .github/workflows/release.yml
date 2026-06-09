@@ -62,7 +62,9 @@ jobs:
 
   goreleaser:
     needs: preflight
-    runs-on: ubuntu-latest
+    # macos-latest because darwin builds compile cgo against Security.framework
+    # for the macOS Keychain backend. See docs/adr/0001-cgo-and-keyring-backends.md.
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
         with:

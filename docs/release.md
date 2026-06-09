@@ -4,6 +4,35 @@ Releases use GoReleaser triggered from Git tags. The workflow publishes a public
 the same run. Both operations use separate tokens — `GITHUB_TOKEN` (built into Actions) for the release, and `HOMEBREW_TAP_TOKEN`
 (a fine-grained PAT) for the tap push.
 
+## Build Matrix
+
+Release artifacts cover three OS × two arch combinations. cgo is enabled selectively, because the macOS Keychain
+backend in `github.com/99designs/keyring` requires cgo while the Windows and Linux native backends do not.
+
+| Target          | `CGO_ENABLED` | Toolchain                       | Runner          |
+| --------------- | ------------- | ------------------------------- | --------------- |
+| darwin / arm64  | 1             | system `clang -arch arm64`      | `macos-latest`  |
+| darwin / amd64  | 1             | system `clang -arch x86_64`     | `macos-latest`  |
+| linux / amd64   | 0             | Go cross-compile                | `macos-latest`  |
+| linux / arm64   | 0             | Go cross-compile                | `macos-latest`  |
+| windows / amd64 | 0             | Go cross-compile                | `macos-latest`  |
+| windows / arm64 | 0             | Go cross-compile                | `macos-latest`  |
+
+The `goreleaser` job runs on `macos-latest` so darwin cgo builds have a working Apple toolchain. The `preflight`
+and `token-check` jobs stay on `ubuntu-latest` (faster and cheaper). Per-arch `CC`/`CXX` overrides live in
+`.goreleaser.yaml` under `builds[].overrides`.
+
+`darwin/amd64` is cross-compiled from the arm64 runner using `clang -arch x86_64`. This depends on the universal SDK
+shipped with the GitHub-hosted `macos-latest` image. If GitHub ever removes the x86_64 SDK from that image, this
+build slice breaks and we have to pin to a specific runner version or move to a Mac mini self-hosted runner.
+
+A `go install` user on macOS gets the Keychain backend by default because Go defaults `CGO_ENABLED=1` on darwin.
+A user who sets `CGO_ENABLED=0` (Alpine/musl images, hardened distros) gets a binary without the Keychain backend
+and must use `encrypted-file:` or `env:` profiles. Full matrix and rationale:
+
+- Backend availability: [`security.md`](security.md#keyring-backend-availability-by-build)
+- Decision record: [`adr/0001-cgo-and-keyring-backends.md`](adr/0001-cgo-and-keyring-backends.md)
+
 ## One-Time Setup
 
 The release workflow publishes a Homebrew cask to `pbv7/homebrew-tap`. This requires a fine-grained PAT, configured once:
