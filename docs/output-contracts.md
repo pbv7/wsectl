@@ -160,7 +160,12 @@ Use `--jq` for richer transforms:
 
 ```bash
 wsectl projects list --json --jq '.data[] | {id, name}'
+wsectl projects list --json --jq '.data[].id'
 ```
+
+`--jq` matches standard `jq` streaming: every value produced by the expression becomes a separate JSON document, newline-separated. A single result
+prints as one document; multiple results print as one document per line. This composes with `jq -r`, `xargs`, and `while read` the way a `jq`
+user expects.
 
 ## Client-Side Limits
 

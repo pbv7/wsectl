@@ -178,6 +178,29 @@ func TestTableWarnsWhenColumnsAreOmitted(t *testing.T) {
 	}
 }
 
+func TestApplyJQEmitsNewlineSeparatedValues(t *testing.T) {
+	raw := []byte(`{"data":[{"action":"post"},{"action":"close"},{"action":"update"}]}`)
+	out, err := ApplyJQ(raw, ".data[].action")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "\"post\"\n\"close\"\n\"update\""
+	if string(out) != want {
+		t.Fatalf("jq output = %q, want %q", out, want)
+	}
+}
+
+func TestApplyJQSingleResultHasNoTrailer(t *testing.T) {
+	raw := []byte(`{"data":[{"id":1}]}`)
+	out, err := ApplyJQ(raw, ".data[0].id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != "1" {
+		t.Fatalf("jq output = %q, want \"1\"", out)
+	}
+}
+
 func TestTableHonorsRequestedColumns(t *testing.T) {
 	env := Success("events", "default", "", json.RawMessage(`[
 		{"action":"post","date_added":"2026-01-01 09:00","object":{"id":"42"}},
