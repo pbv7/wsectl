@@ -346,6 +346,9 @@ func (s *state) warnRawIgnoredFlags(cmd *cobra.Command) {
 	if s.jq != "" {
 		_, _ = fmt.Fprintln(w, "warning: --jq is ignored with --raw (raw mode emits the upstream response verbatim)")
 	}
+	if s.failOnTruncated {
+		_, _ = fmt.Fprintln(w, "warning: --fail-on-truncated is ignored with --raw (raw mode does not parse the response to detect truncation)")
+	}
 }
 
 func (s *state) noteRawHistoryResult(action string, raw []byte) {

@@ -651,6 +651,24 @@ func TestRawWarnsWhenTransformsAreIgnored(t *testing.T) {
 	}
 }
 
+func TestRawWarnsWhenFailOnTruncatedIgnored(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","data":[{"id":"1"}]}`))
+	}))
+	defer server.Close()
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_ACCOUNT_URL", server.URL)
+	t.Setenv("WSECTL_ACCESS_TOKEN", "token")
+
+	out, err := execute("api", "call", "get_users", "--raw", "--fail-on-truncated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "warning: --fail-on-truncated is ignored with --raw") {
+		t.Fatalf("expected --fail-on-truncated warning in output:\n%s", out)
+	}
+}
+
 func TestRawQuietSuppressesWarnings(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"status":"ok","data":[{"id":"1"}]}`))
