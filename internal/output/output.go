@@ -42,6 +42,7 @@ type Options struct {
 	JQ              string
 	Out             string
 	KnownFields     []string
+	TableColumns    []string
 	Contract        worksection.ResponseContract
 	FailOnTruncated bool
 }
@@ -123,7 +124,7 @@ func outputIsTerminal(w io.Writer) bool {
 }
 
 func applyWriteFields(env Envelope, opts Options, format string) (Envelope, error) {
-	if len(opts.Fields) == 0 || format == "table" || format == "raw" {
+	if len(opts.Fields) == 0 || format == "raw" {
 		return env, nil
 	}
 	return ApplyFieldSelection(env, opts.Fields, opts.KnownFields, opts.Contract)
@@ -138,12 +139,19 @@ func renderEnvelope(env Envelope, opts Options, format string) ([]byte, error) {
 	case "ndjson":
 		return NDJSON(env, opts.Contract)
 	case "table":
-		return Table(env, opts.Contract)
+		return Table(env, opts.Contract, tableColumns(opts))
 	case "raw":
 		return env.Data, nil
 	default:
 		return nil, worksection.UsageError("unsupported output format %q", opts.Format)
 	}
+}
+
+func tableColumns(opts Options) []string {
+	if len(opts.Fields) > 0 {
+		return opts.Fields
+	}
+	return opts.TableColumns
 }
 
 func applyWriteJQ(out []byte, expr string) ([]byte, error) {

@@ -165,7 +165,7 @@ func TestTableWarnsWhenColumnsAreOmitted(t *testing.T) {
 		"date_end":"2026-06-03",
 		"extra":"hidden"
 	}]`))
-	raw, err := Table(env, worksection.ResponseContract{})
+	raw, err := Table(env, worksection.ResponseContract{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,6 +175,44 @@ func TestTableWarnsWhenColumnsAreOmitted(t *testing.T) {
 	}
 	if strings.Contains(text, "DATE_END") || strings.Contains(text, "EXTRA") {
 		t.Fatalf("table rendered columns that should be omitted by the six-column cap:\n%s", text)
+	}
+}
+
+func TestTableHonorsRequestedColumns(t *testing.T) {
+	env := Success("events", "default", "", json.RawMessage(`[
+		{"action":"post","date_added":"2026-01-01 09:00","object":{"id":"42"}},
+		{"action":"close","date_added":"2026-01-01 09:05","object":{"id":"42"}}
+	]`))
+	raw, err := Table(env, worksection.ResponseContract{}, []string{"action", "date_added"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "ACTION") || !strings.Contains(text, "DATE_ADDED") {
+		t.Fatalf("expected requested columns in header:\n%s", text)
+	}
+	if strings.Contains(text, "OBJECT") {
+		t.Fatalf("non-requested column rendered:\n%s", text)
+	}
+	if strings.Contains(text, "Note: table output shows") {
+		t.Fatalf("did not expect omitted-columns note when columns were explicit:\n%s", text)
+	}
+	if idx, jdx := strings.Index(text, "ACTION"), strings.Index(text, "DATE_ADDED"); idx < 0 || idx >= jdx {
+		t.Fatalf("column order not preserved:\n%s", text)
+	}
+}
+
+func TestTableHonorsDottedRequestedColumns(t *testing.T) {
+	env := Success("events", "default", "", json.RawMessage(`[
+		{"action":"post","object":{"id":"42","type":"task"}}
+	]`))
+	raw, err := Table(env, worksection.ResponseContract{}, []string{"action", "object.id"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "OBJECT.ID") || !strings.Contains(text, "42") {
+		t.Fatalf("dotted-path column not rendered:\n%s", text)
 	}
 }
 
@@ -221,7 +259,7 @@ func TestCompositeNDJSONAndTableUsePrimaryRows(t *testing.T) {
 	if bytes.Count(ndjson, []byte("\n")) != 1 || strings.Contains(string(ndjson), `"total"`) {
 		t.Fatalf("unexpected composite ndjson: %s", ndjson)
 	}
-	table, err := Table(env, compositeCostContract())
+	table, err := Table(env, compositeCostContract(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

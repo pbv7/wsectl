@@ -142,10 +142,17 @@ exact body and exits with the Worksection API error code.
 ```bash
 wsectl projects list --json --fields id,name,status
 wsectl tasks search --json --fields id,name,project.name
+wsectl projects events --project PROJECT_ID --period 1d --table --fields action,date_added
 ```
 
-`--fields` supports dotted paths and keeps warnings in `meta.warnings` when requested fields are missing or unknown to the static action contract. Use
-`--jq` for richer transforms:
+`--fields` supports dotted paths and keeps warnings in `meta.warnings` when requested fields are missing or unknown to the static action contract. It
+applies to JSON, YAML, NDJSON, and table output. With `--table` the field list also fixes the column set and order. `--raw` ignores `--fields`
+(see [Raw](#raw)).
+
+Without `--fields`, table output uses the action's curated columns (`table_columns` in the action schema). Inspect them with
+`wsectl api schema ACTION --json` or `wsectl COMMAND --schema --yaml`.
+
+Use `--jq` for richer transforms:
 
 ```bash
 wsectl projects list --json --jq '.data[] | {id, name}'

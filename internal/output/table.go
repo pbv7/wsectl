@@ -11,8 +11,11 @@ import (
 	"github.com/pbv7/wsectl/internal/worksection"
 )
 
-// Table renders array or object data for human terminal use.
-func Table(env Envelope, contract worksection.ResponseContract) ([]byte, error) {
+// Table renders array or object data for human terminal use. When
+// requested is non-empty it forces both the column set and their order;
+// otherwise the action's curated columns (or a fallback heuristic) are
+// used.
+func Table(env Envelope, contract worksection.ResponseContract, requested []string) ([]byte, error) {
 	data := primaryData(env.Data, contract)
 	var arr []map[string]any
 	if err := json.Unmarshal(data, &arr); err != nil {
@@ -25,7 +28,10 @@ func Table(env Envelope, contract worksection.ResponseContract) ([]byte, error) 
 	if len(arr) == 0 {
 		return []byte("No rows"), nil
 	}
-	keys, omitted := preferredKeys(arr)
+	if len(requested) > 0 {
+		arr = projectRows(arr, requested)
+	}
+	keys, omitted := selectKeys(arr, requested)
 	widths := map[string]int{}
 	for _, k := range keys {
 		widths[k] = displayWidth(k)
@@ -57,6 +63,31 @@ func Table(env Envelope, contract worksection.ResponseContract) ([]byte, error) 
 		fmt.Fprintf(&b, "\nNote: table output shows %d of %d columns; use --fields or --json to inspect omitted fields.\n", len(keys), len(keys)+omitted)
 	}
 	return bytes.TrimRight(b.Bytes(), "\n"), nil
+}
+
+func selectKeys(arr []map[string]any, requested []string) ([]string, int) {
+	if len(requested) > 0 {
+		return append([]string(nil), requested...), 0
+	}
+	return preferredKeys(arr)
+}
+
+func projectRows(arr []map[string]any, fields []string) []map[string]any {
+	out := make([]map[string]any, len(arr))
+	for i, row := range arr {
+		projected := map[string]any{}
+		for _, f := range fields {
+			path := splitPath(f)
+			if len(path) == 0 {
+				continue
+			}
+			if v, ok := getPath(row, path); ok {
+				projected[f] = v
+			}
+		}
+		out[i] = projected
+	}
+	return out
 }
 
 func preferredKeys(arr []map[string]any) ([]string, int) {

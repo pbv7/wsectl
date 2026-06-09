@@ -388,6 +388,7 @@ func (s *state) actionOutput(action string, clientInfo clientResult, resp *works
 	env.Meta.Warnings = append(env.Meta.Warnings, extraWarnings...)
 	opts := s.outputOptions()
 	opts.KnownFields = spec.KnownFieldNames()
+	opts.TableColumns = spec.TableColumns
 	opts.Contract = spec.Response
 	return env, opts, nil
 }
