@@ -251,6 +251,37 @@ func TestWriteNormalizesTrailingNewline(t *testing.T) {
 	}
 }
 
+func TestResolveFormatForcesJSONWhenJQSet(t *testing.T) {
+	if got := resolveFormat(os.Stdout, "", ".data[0]"); got != "json" {
+		t.Fatalf("auto format + --jq should resolve to json, got %q", got)
+	}
+	if got := resolveFormat(os.Stdout, "auto", ".data[0]"); got != "json" {
+		t.Fatalf("explicit auto + --jq should resolve to json, got %q", got)
+	}
+	if got := resolveFormat(os.Stdout, "yaml", ".data[0]"); got != "yaml" {
+		t.Fatalf("explicit --yaml must not be overridden by --jq, got %q", got)
+	}
+}
+
+func TestWriteEmptyJQResultTruncatesOutFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out.txt")
+	if err := os.WriteFile(path, []byte("stale prior content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := Success("users", "default", "", json.RawMessage(`[{"id":"1"},{"id":"2"}]`))
+	opts := Options{Format: "json", JQ: ".data[] | select(.id==\"missing\")", Out: path}
+	if err := Write(&bytes.Buffer{}, env, opts); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("empty jq stream should truncate --out file, got %q", got)
+	}
+}
+
 func TestWriteEmptyJQResultProducesNoOutput(t *testing.T) {
 	env := Success("users", "default", "", json.RawMessage(`[{"id":"1","name":"Ada"},{"id":"2","name":"Lin"}]`))
 	var buf bytes.Buffer
