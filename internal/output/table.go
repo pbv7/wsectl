@@ -78,11 +78,15 @@ func selectKeys(arr []map[string]any, requested []string) ([]string, int) {
 }
 
 func projectRows(arr []map[string]any, fields []string) []map[string]any {
+	paths := make([][]string, len(fields))
+	for i, f := range fields {
+		paths[i] = splitPath(f)
+	}
 	out := make([]map[string]any, len(arr))
 	for i, row := range arr {
 		projected := map[string]any{}
-		for _, f := range fields {
-			path := splitPath(f)
+		for j, f := range fields {
+			path := paths[j]
 			if len(path) == 0 {
 				continue
 			}
