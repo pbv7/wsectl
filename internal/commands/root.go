@@ -338,13 +338,13 @@ func (s *state) warnRawIgnoredFlags(cmd *cobra.Command) {
 	}
 	w := cmd.ErrOrStderr()
 	if s.fields != "" {
-		fmt.Fprintln(w, "warning: --fields is ignored with --raw (raw mode emits the upstream response verbatim)")
+		_, _ = fmt.Fprintln(w, "warning: --fields is ignored with --raw (raw mode emits the upstream response verbatim)")
 	}
 	if s.limit > 0 {
-		fmt.Fprintln(w, "warning: --limit is ignored with --raw (raw mode emits the upstream response verbatim)")
+		_, _ = fmt.Fprintln(w, "warning: --limit is ignored with --raw (raw mode emits the upstream response verbatim)")
 	}
 	if s.jq != "" {
-		fmt.Fprintln(w, "warning: --jq is ignored with --raw (raw mode emits the upstream response verbatim)")
+		_, _ = fmt.Fprintln(w, "warning: --jq is ignored with --raw (raw mode emits the upstream response verbatim)")
 	}
 }
 
