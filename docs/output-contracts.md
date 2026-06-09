@@ -93,7 +93,11 @@ Agents can inspect response contracts before making a Worksection request:
 ```bash
 wsectl api schema get_tasks --json
 wsectl tasks search --schema --json
+wsectl tasks search --schema --yaml
 ```
+
+`--schema` honors `--json`, `--yaml`, and `--ndjson`. Default is JSON when no format flag is set, since the schema payload is a nested
+object rather than tabular data.
 
 The contract includes `response_shape`, `data_path`, `item_shape`, `conditional_fields`, `count_path`, and notes. It is advisory and versioned, not a
 full JSON Schema.
@@ -137,19 +141,36 @@ Use this when downstream tools process one record at a time.
 `--raw --out FILE` for large raw responses. If Worksection returns an API error inside an HTTP 200 JSON body, raw mode still prints or writes the
 exact body and exits with the Worksection API error code.
 
+Because raw mode emits the upstream bytes verbatim, the transform and validation flags `--fields`, `--limit`, `--jq`, and `--fail-on-truncated`
+cannot be applied. If any of them are present alongside `--raw`, `wsectl` emits a one-line warning to stderr per flag and proceeds. Use `--quiet`
+to suppress the warnings, or pipe the raw body into `jq` for downstream processing.
+
 ## Field Projection
 
 ```bash
 wsectl projects list --json --fields id,name,status
 wsectl tasks search --json --fields id,name,project.name
+wsectl projects events --project PROJECT_ID --period 1d --table --fields action,date_added
 ```
 
-`--fields` supports dotted paths and keeps warnings in `meta.warnings` when requested fields are missing or unknown to the static action contract. Use
-`--jq` for richer transforms:
+`--fields` supports dotted paths and keeps warnings in `meta.warnings` when requested fields are missing or unknown to the static action contract. It
+applies to JSON, YAML, NDJSON, and table output. With `--table` the field list also fixes the column set and order. `--raw` ignores `--fields`
+(see [Raw](#raw)).
+
+Without `--fields`, table output uses the action's curated columns (`table_columns` in the action schema). Inspect them with
+`wsectl api schema ACTION --json` or `wsectl COMMAND --schema --yaml`.
+
+Use `--jq` for richer transforms:
 
 ```bash
 wsectl projects list --json --jq '.data[] | {id, name}'
+wsectl projects list --json --jq '.data[].id'
 ```
+
+`--jq` matches standard `jq` streaming: every value produced by the expression becomes a separate JSON document, joined by a single newline.
+Scalar results (strings, numbers, booleans) render on one line each, so `--jq '.data[].id' | jq -r '.'` or `xargs`-style consumption works as a
+`jq` user expects. Object and array results are pretty-printed across multiple lines (matching default `jq` output); there is no compact-output
+flag yet, so pipe through `jq -c` if you need single-line objects per record.
 
 ## Client-Side Limits
 

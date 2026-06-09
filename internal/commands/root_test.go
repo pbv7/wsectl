@@ -538,6 +538,19 @@ func TestCommandSchemaDoesNotRequireCredentials(t *testing.T) {
 	}
 }
 
+func TestCommandSchemaHonorsYAMLFormat(t *testing.T) {
+	out, err := execute("tasks", "search", "--schema", "--yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "status: ok") || !strings.Contains(out, "name: search_tasks") {
+		t.Fatalf("expected YAML schema output, got:\n%s", out)
+	}
+	if strings.Contains(out, `"status": "ok"`) {
+		t.Fatalf("schema rendered as JSON despite --yaml:\n%s", out)
+	}
+}
+
 func TestCommandValidationBeforeAuth(t *testing.T) {
 	tests := [][]string{
 		{"tasks", "all", "--status", "done", "--json"},
@@ -608,6 +621,116 @@ func TestRawOutputHonorsOutFile(t *testing.T) {
 	}
 	if string(raw) != `{"status":"ok","data":[{"id":"1"}]}` {
 		t.Fatalf("raw file was not exact: %q", raw)
+	}
+}
+
+func TestRawWarnsWhenTransformsAreIgnored(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","data":[{"id":"1"},{"id":"2"}]}`))
+	}))
+	defer server.Close()
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_ACCOUNT_URL", server.URL)
+	t.Setenv("WSECTL_ACCESS_TOKEN", "token")
+
+	out, err := execute("api", "call", "get_users", "--raw", "--fields", "id", "--limit", "1", "--jq", ".data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"warning: --fields is ignored with --raw",
+		"warning: --limit is ignored with --raw",
+		"warning: --jq is ignored with --raw",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected warning %q in output:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, `{"status":"ok","data":[{"id":"1"},{"id":"2"}]}`) {
+		t.Fatalf("raw body was not preserved verbatim:\n%s", out)
+	}
+}
+
+func TestRawWarnsWhenFailOnTruncatedIgnored(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","data":[{"id":"1"}]}`))
+	}))
+	defer server.Close()
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_ACCOUNT_URL", server.URL)
+	t.Setenv("WSECTL_ACCESS_TOKEN", "token")
+
+	out, err := execute("api", "call", "get_users", "--raw", "--fail-on-truncated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "warning: --fail-on-truncated is ignored with --raw") {
+		t.Fatalf("expected --fail-on-truncated warning in output:\n%s", out)
+	}
+}
+
+func TestRawQuietSuppressesWarnings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","data":[{"id":"1"}]}`))
+	}))
+	defer server.Close()
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_ACCOUNT_URL", server.URL)
+	t.Setenv("WSECTL_ACCESS_TOKEN", "token")
+
+	out, err := execute("api", "call", "get_users", "--raw", "--fields", "id", "--quiet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "warning:") {
+		t.Fatalf("--quiet should suppress raw warnings:\n%s", out)
+	}
+}
+
+func TestTableUsesActionCuratedColumns(t *testing.T) {
+	// get_users declares cols("id","name","email","role") at the action layer.
+	// Without --fields the table renderer must honor those curated columns,
+	// not fall back to the alphabetical preferredKeys heuristic. Returning
+	// extra fields (department, group) lets us prove the curated set wins
+	// rather than coincidentally matching the default order.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","data":[
+			{"id":"1","name":"Ada","email":"ada@example.com","role":"admin","department":"Eng","group":{"id":"7","name":"Core"}}
+		]}`))
+	}))
+	defer server.Close()
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_ACCOUNT_URL", server.URL)
+	t.Setenv("WSECTL_ACCESS_TOKEN", "token")
+
+	out, err := execute("users", "list", "--output", "table")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ID", "NAME", "EMAIL", "ROLE"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected curated column %q in header:\n%s", want, out)
+		}
+	}
+	for _, unwanted := range []string{"DEPARTMENT", "GROUP"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("non-curated column %q rendered; action TableColumns not honored:\n%s", unwanted, out)
+		}
+	}
+	// Order: id, name, email, role — exactly as cols(...) declares.
+	positions := []int{
+		strings.Index(out, "ID"),
+		strings.Index(out, "NAME"),
+		strings.Index(out, "EMAIL"),
+		strings.Index(out, "ROLE"),
+	}
+	for i := 1; i < len(positions); i++ {
+		if positions[i] <= positions[i-1] {
+			t.Fatalf("curated column order not preserved (positions %v):\n%s", positions, out)
+		}
+	}
+	if strings.Contains(out, "Note: table output shows") {
+		t.Fatalf("omitted-columns note should not appear when curated set is used:\n%s", out)
 	}
 }
 

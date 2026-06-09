@@ -2,7 +2,6 @@ package output
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 
@@ -42,6 +41,7 @@ type Options struct {
 	JQ              string
 	Out             string
 	KnownFields     []string
+	TableColumns    []string
 	Contract        worksection.ResponseContract
 	FailOnTruncated bool
 }
@@ -87,7 +87,7 @@ func Write(w io.Writer, env Envelope, opts Options) error {
 	if env.Meta.Truncated && opts.FailOnTruncated {
 		return &worksection.Error{Code: worksection.CodeTruncated, Message: "response may be truncated"}
 	}
-	format := resolveFormat(w, opts.Format)
+	format := resolveFormat(w, opts.Format, opts.JQ)
 	env, err := applyWriteFields(env, opts, format)
 	if err != nil {
 		return err
@@ -100,12 +100,18 @@ func Write(w io.Writer, env Envelope, opts Options) error {
 	if err != nil {
 		return err
 	}
-	return writeRenderedOutput(w, opts.Out, out)
+	return writeRenderedOutput(w, opts.Out, out, format == "raw")
 }
 
-func resolveFormat(w io.Writer, requested string) string {
+func resolveFormat(w io.Writer, requested, jq string) string {
 	if requested != "" && requested != "auto" {
 		return requested
+	}
+	// ApplyJQ runs on the rendered bytes and expects JSON. With auto
+	// format on a terminal we would otherwise render a table and the
+	// jq pass would fail parsing it.
+	if jq != "" {
+		return "json"
 	}
 	if outputIsTerminal(w) {
 		return "table"
@@ -123,7 +129,7 @@ func outputIsTerminal(w io.Writer) bool {
 }
 
 func applyWriteFields(env Envelope, opts Options, format string) (Envelope, error) {
-	if len(opts.Fields) == 0 || format == "table" || format == "raw" {
+	if len(opts.Fields) == 0 || format == "raw" {
 		return env, nil
 	}
 	return ApplyFieldSelection(env, opts.Fields, opts.KnownFields, opts.Contract)
@@ -138,12 +144,19 @@ func renderEnvelope(env Envelope, opts Options, format string) ([]byte, error) {
 	case "ndjson":
 		return NDJSON(env, opts.Contract)
 	case "table":
-		return Table(env, opts.Contract)
+		return Table(env, opts.Contract, tableColumns(opts))
 	case "raw":
 		return env.Data, nil
 	default:
 		return nil, worksection.UsageError("unsupported output format %q", opts.Format)
 	}
+}
+
+func tableColumns(opts Options) []string {
+	if len(opts.Fields) > 0 {
+		return opts.Fields
+	}
+	return opts.TableColumns
 }
 
 func applyWriteJQ(out []byte, expr string) ([]byte, error) {
@@ -153,9 +166,20 @@ func applyWriteJQ(out []byte, expr string) ([]byte, error) {
 	return ApplyJQ(out, expr)
 }
 
-func writeRenderedOutput(w io.Writer, outPath string, out []byte) error {
+// writeRenderedOutput sends rendered bytes to the requested destination.
+// Non-raw outputs are normalized to exactly one trailing newline when
+// non-empty; raw mode preserves upstream bytes verbatim. An empty stream
+// suppresses stdout to avoid a phantom blank line, but still truncates
+// any explicit --out FILE so stale contents aren't left behind.
+func writeRenderedOutput(w io.Writer, outPath string, out []byte, verbatim bool) error {
+	if !verbatim && len(out) > 0 && out[len(out)-1] != '\n' {
+		out = append(out, '\n')
+	}
 	if outPath == "" {
-		_, err := fmt.Fprintln(w, string(out))
+		if len(out) == 0 {
+			return nil
+		}
+		_, err := w.Write(out)
 		return err
 	}
 	if outPath == "-" {

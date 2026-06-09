@@ -132,6 +132,12 @@ func TestWriteYAMLTableAndJQ(t *testing.T) {
 	if !strings.Contains(yamlOut.String(), "status: ok") {
 		t.Fatalf("unexpected yaml: %s", yamlOut.String())
 	}
+	if !strings.Contains(yamlOut.String(), "id: \"1\"") || !strings.Contains(yamlOut.String(), "name: Ada") {
+		t.Fatalf("yaml data not rendered as a mapping: %s", yamlOut.String())
+	}
+	if strings.Contains(yamlOut.String(), "- 91") || strings.Contains(yamlOut.String(), "- 123") {
+		t.Fatalf("yaml data leaked as raw bytes: %s", yamlOut.String())
+	}
 	var tableOut bytes.Buffer
 	if err := Write(&tableOut, env, Options{Format: "table"}); err != nil {
 		t.Fatal(err)
@@ -159,7 +165,7 @@ func TestTableWarnsWhenColumnsAreOmitted(t *testing.T) {
 		"date_end":"2026-06-03",
 		"extra":"hidden"
 	}]`))
-	raw, err := Table(env, worksection.ResponseContract{})
+	raw, err := Table(env, worksection.ResponseContract{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,6 +175,202 @@ func TestTableWarnsWhenColumnsAreOmitted(t *testing.T) {
 	}
 	if strings.Contains(text, "DATE_END") || strings.Contains(text, "EXTRA") {
 		t.Fatalf("table rendered columns that should be omitted by the six-column cap:\n%s", text)
+	}
+}
+
+func TestApplyJQEmitsNewlineSeparatedValues(t *testing.T) {
+	raw := []byte(`{"data":[{"action":"post"},{"action":"close"},{"action":"update"}]}`)
+	out, err := ApplyJQ(raw, ".data[].action")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "\"post\"\n\"close\"\n\"update\""
+	if string(out) != want {
+		t.Fatalf("jq output = %q, want %q", out, want)
+	}
+}
+
+func TestApplyJQSingleResultHasNoTrailer(t *testing.T) {
+	raw := []byte(`{"data":[{"id":1}]}`)
+	out, err := ApplyJQ(raw, ".data[0].id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != "1" {
+		t.Fatalf("jq output = %q, want \"1\"", out)
+	}
+}
+
+func TestYAMLPreservesScalarQuotingAndKeyStyle(t *testing.T) {
+	// String values that look like booleans, nulls, or numbers must keep
+	// their quoting on YAML output — otherwise a round-trip would reparse
+	// them as different types. At the same time, map keys must render
+	// unquoted in block style so the envelope reads naturally.
+	env := Success("api", "default", "", json.RawMessage(`{"flag":"true","missing":"null","numeric_id":"42"}`))
+	raw, err := YAML(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, want := range []string{`flag: "true"`, `missing: "null"`, `numeric_id: "42"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("scalar value quoting dropped (%s):\n%s", want, text)
+		}
+	}
+	for _, bad := range []string{`"flag":`, `"missing":`, `"numeric_id":`} {
+		if strings.Contains(text, bad) {
+			t.Fatalf("map key rendered with leftover JSON quotes (%s):\n%s", bad, text)
+		}
+	}
+}
+
+func TestYAMLPreservesLargeIntegerPrecision(t *testing.T) {
+	// 9007199254740993 = 2^53 + 1, the canonical value that loses
+	// precision when routed through float64. The YAML output must
+	// preserve the exact digit string.
+	env := Success("call", "default", "", json.RawMessage(`{"big_id":9007199254740993,"small":42}`))
+	raw, err := YAML(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "big_id: 9007199254740993") {
+		t.Fatalf("YAML lost precision on 2^53+1 integer:\n%s", text)
+	}
+	if !strings.Contains(text, "small: 42") {
+		t.Fatalf("YAML lost small-integer rendering:\n%s", text)
+	}
+}
+
+func TestWriteNormalizesTrailingNewline(t *testing.T) {
+	env := Success("get_users", "default", "", json.RawMessage(`[{"id":"1","name":"Ada"}]`))
+	// YAML renderer emits its own trailing \n; non-YAML renderers do not.
+	// writeRenderedOutput must collapse both cases to exactly one.
+	for _, format := range []string{"json", "yaml", "ndjson", "table"} {
+		var buf bytes.Buffer
+		if err := Write(&buf, env, Options{Format: format}); err != nil {
+			t.Fatalf("%s write: %v", format, err)
+		}
+		b := buf.Bytes()
+		if len(b) == 0 {
+			t.Fatalf("%s produced no output", format)
+		}
+		if b[len(b)-1] != '\n' {
+			t.Fatalf("%s output missing trailing newline: %q", format, b)
+		}
+		if len(b) >= 2 && b[len(b)-2] == '\n' {
+			t.Fatalf("%s output has double trailing newline: %q", format, b)
+		}
+	}
+
+	// Raw mode must preserve bytes verbatim — no newline added.
+	rawEnv := Success("get_users", "default", "", json.RawMessage(`{"exact":true}`))
+	var rawBuf bytes.Buffer
+	if err := Write(&rawBuf, rawEnv, Options{Format: "raw"}); err != nil {
+		t.Fatal(err)
+	}
+	if rawBuf.String() != `{"exact":true}` {
+		t.Fatalf("raw output should be byte-exact, got %q", rawBuf.String())
+	}
+}
+
+func TestResolveFormatForcesJSONWhenJQSet(t *testing.T) {
+	if got := resolveFormat(os.Stdout, "", ".data[0]"); got != "json" {
+		t.Fatalf("auto format + --jq should resolve to json, got %q", got)
+	}
+	if got := resolveFormat(os.Stdout, "auto", ".data[0]"); got != "json" {
+		t.Fatalf("explicit auto + --jq should resolve to json, got %q", got)
+	}
+	if got := resolveFormat(os.Stdout, "yaml", ".data[0]"); got != "yaml" {
+		t.Fatalf("explicit --yaml must not be overridden by --jq, got %q", got)
+	}
+}
+
+func TestWriteEmptyJQResultTruncatesOutFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out.txt")
+	if err := os.WriteFile(path, []byte("stale prior content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := Success("users", "default", "", json.RawMessage(`[{"id":"1"},{"id":"2"}]`))
+	opts := Options{Format: "json", JQ: ".data[] | select(.id==\"missing\")", Out: path}
+	if err := Write(&bytes.Buffer{}, env, opts); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("empty jq stream should truncate --out file, got %q", got)
+	}
+}
+
+func TestWriteEmptyJQResultProducesNoOutput(t *testing.T) {
+	env := Success("users", "default", "", json.RawMessage(`[{"id":"1","name":"Ada"},{"id":"2","name":"Lin"}]`))
+	var buf bytes.Buffer
+	if err := Write(&buf, env, Options{Format: "json", JQ: ".data[] | select(.id==\"missing\")"}); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("empty jq stream should produce no stdout, got %q", buf.String())
+	}
+}
+
+func TestWriteTableSurfacesFieldWarnings(t *testing.T) {
+	env := Success("users", "default", "", json.RawMessage(`[{"id":"1","name":"Ada"}]`))
+	var buf bytes.Buffer
+	opts := Options{
+		Format:      "table",
+		Fields:      []string{"id", "nmae"},
+		KnownFields: []string{"id", "name"},
+	}
+	if err := Write(&buf, env, opts); err != nil {
+		t.Fatal(err)
+	}
+	text := buf.String()
+	if !strings.Contains(text, "Requested field nmae") {
+		t.Fatalf("table should surface field warnings, got:\n%s", text)
+	}
+	if !strings.Contains(text, "ID") || !strings.Contains(text, "NMAE") {
+		t.Fatalf("table missing requested columns:\n%s", text)
+	}
+}
+
+func TestTableHonorsRequestedColumns(t *testing.T) {
+	env := Success("events", "default", "", json.RawMessage(`[
+		{"action":"post","date_added":"2026-01-01 09:00","object":{"id":"42"}},
+		{"action":"close","date_added":"2026-01-01 09:05","object":{"id":"42"}}
+	]`))
+	raw, err := Table(env, worksection.ResponseContract{}, []string{"action", "date_added"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "ACTION") || !strings.Contains(text, "DATE_ADDED") {
+		t.Fatalf("expected requested columns in header:\n%s", text)
+	}
+	if strings.Contains(text, "OBJECT") {
+		t.Fatalf("non-requested column rendered:\n%s", text)
+	}
+	if strings.Contains(text, "Note: table output shows") {
+		t.Fatalf("did not expect omitted-columns note when columns were explicit:\n%s", text)
+	}
+	if idx, jdx := strings.Index(text, "ACTION"), strings.Index(text, "DATE_ADDED"); idx < 0 || idx >= jdx {
+		t.Fatalf("column order not preserved:\n%s", text)
+	}
+}
+
+func TestTableHonorsDottedRequestedColumns(t *testing.T) {
+	env := Success("events", "default", "", json.RawMessage(`[
+		{"action":"post","object":{"id":"42","type":"task"}}
+	]`))
+	raw, err := Table(env, worksection.ResponseContract{}, []string{"action", "object.id"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "OBJECT.ID") || !strings.Contains(text, "42") {
+		t.Fatalf("dotted-path column not rendered:\n%s", text)
 	}
 }
 
@@ -215,7 +417,7 @@ func TestCompositeNDJSONAndTableUsePrimaryRows(t *testing.T) {
 	if bytes.Count(ndjson, []byte("\n")) != 1 || strings.Contains(string(ndjson), `"total"`) {
 		t.Fatalf("unexpected composite ndjson: %s", ndjson)
 	}
-	table, err := Table(env, compositeCostContract())
+	table, err := Table(env, compositeCostContract(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

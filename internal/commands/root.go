@@ -314,6 +314,7 @@ func (s *state) callActionRaw(cmd *cobra.Command, clientInfo clientResult, actio
 }
 
 func (s *state) writeRawActionResult(cmd *cobra.Command, action string, raw []byte) error {
+	s.warnRawIgnoredFlags(cmd)
 	if err := writeRawBytes(cmd.OutOrStdout(), s.out, raw); err != nil {
 		return err
 	}
@@ -325,6 +326,29 @@ func (s *state) writeRawActionResult(cmd *cobra.Command, action string, raw []by
 		return &worksection.Error{Code: worksection.CodeAPI, Message: "Worksection API returned an error response"}
 	}
 	return nil
+}
+
+// warnRawIgnoredFlags emits a single stderr warning per ignored transform
+// flag. --raw streams the upstream HTTP body verbatim, so --fields/--limit/--jq
+// have no effect; silently dropping them is a foot-gun, hard-erroring would
+// break users who set these as default flags.
+func (s *state) warnRawIgnoredFlags(cmd *cobra.Command) {
+	if s.quiet {
+		return
+	}
+	w := cmd.ErrOrStderr()
+	if s.fields != "" {
+		_, _ = fmt.Fprintln(w, "warning: --fields is ignored with --raw (raw mode emits the upstream response verbatim)")
+	}
+	if s.limit > 0 {
+		_, _ = fmt.Fprintln(w, "warning: --limit is ignored with --raw (raw mode emits the upstream response verbatim)")
+	}
+	if s.jq != "" {
+		_, _ = fmt.Fprintln(w, "warning: --jq is ignored with --raw (raw mode emits the upstream response verbatim)")
+	}
+	if s.failOnTruncated {
+		_, _ = fmt.Fprintln(w, "warning: --fail-on-truncated is ignored with --raw (raw mode does not parse the response to detect truncation)")
+	}
 }
 
 func (s *state) noteRawHistoryResult(action string, raw []byte) {
@@ -388,6 +412,7 @@ func (s *state) actionOutput(action string, clientInfo clientResult, resp *works
 	env.Meta.Warnings = append(env.Meta.Warnings, extraWarnings...)
 	opts := s.outputOptions()
 	opts.KnownFields = spec.KnownFieldNames()
+	opts.TableColumns = spec.TableColumns
 	opts.Contract = spec.Response
 	return env, opts, nil
 }
@@ -415,7 +440,9 @@ func (s *state) writeActionSchema(cmd *cobra.Command, action string) error {
 	env := output.SuccessWithContract("schema "+action, "", "", raw, spec.Response)
 	s.noteHistoryEnvelope(env)
 	opts := s.outputOptions()
-	opts.Format = "json"
+	if opts.Format == "" || opts.Format == "auto" {
+		opts.Format = "json"
+	}
 	return output.Write(cmd.OutOrStdout(), env, opts)
 }
 
