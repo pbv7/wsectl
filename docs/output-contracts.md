@@ -96,7 +96,8 @@ wsectl tasks search --schema --json
 wsectl tasks search --schema --yaml
 ```
 
-`--schema` honors `--json`, `--yaml`, and `--ndjson`. Default is JSON when no format flag is set, since the schema payload is a nested object rather than tabular data.
+`--schema` honors `--json`, `--yaml`, and `--ndjson`. Default is JSON when no format flag is set, since the schema payload is a nested
+object rather than tabular data.
 
 The contract includes `response_shape`, `data_path`, `item_shape`, `conditional_fields`, `count_path`, and notes. It is advisory and versioned, not a
 full JSON Schema.
