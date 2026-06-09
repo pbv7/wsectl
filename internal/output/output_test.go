@@ -201,6 +201,38 @@ func TestApplyJQSingleResultHasNoTrailer(t *testing.T) {
 	}
 }
 
+func TestWriteNormalizesTrailingNewline(t *testing.T) {
+	env := Success("get_users", "default", "", json.RawMessage(`[{"id":"1","name":"Ada"}]`))
+	// YAML renderer emits its own trailing \n; non-YAML renderers do not.
+	// writeRenderedOutput must collapse both cases to exactly one.
+	for _, format := range []string{"json", "yaml", "ndjson", "table"} {
+		var buf bytes.Buffer
+		if err := Write(&buf, env, Options{Format: format}); err != nil {
+			t.Fatalf("%s write: %v", format, err)
+		}
+		b := buf.Bytes()
+		if len(b) == 0 {
+			t.Fatalf("%s produced no output", format)
+		}
+		if b[len(b)-1] != '\n' {
+			t.Fatalf("%s output missing trailing newline: %q", format, b)
+		}
+		if len(b) >= 2 && b[len(b)-2] == '\n' {
+			t.Fatalf("%s output has double trailing newline: %q", format, b)
+		}
+	}
+
+	// Raw mode must preserve bytes verbatim — no newline added.
+	rawEnv := Success("get_users", "default", "", json.RawMessage(`{"exact":true}`))
+	var rawBuf bytes.Buffer
+	if err := Write(&rawBuf, rawEnv, Options{Format: "raw"}); err != nil {
+		t.Fatal(err)
+	}
+	if rawBuf.String() != `{"exact":true}` {
+		t.Fatalf("raw output should be byte-exact, got %q", rawBuf.String())
+	}
+}
+
 func TestWriteEmptyJQResultProducesNoOutput(t *testing.T) {
 	env := Success("users", "default", "", json.RawMessage(`[{"id":"1","name":"Ada"},{"id":"2","name":"Lin"}]`))
 	var buf bytes.Buffer

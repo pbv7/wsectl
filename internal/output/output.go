@@ -2,7 +2,6 @@ package output
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 
@@ -101,7 +100,7 @@ func Write(w io.Writer, env Envelope, opts Options) error {
 	if err != nil {
 		return err
 	}
-	return writeRenderedOutput(w, opts.Out, out)
+	return writeRenderedOutput(w, opts.Out, out, format == "raw")
 }
 
 func resolveFormat(w io.Writer, requested string) string {
@@ -161,12 +160,21 @@ func applyWriteJQ(out []byte, expr string) ([]byte, error) {
 	return ApplyJQ(out, expr)
 }
 
-func writeRenderedOutput(w io.Writer, outPath string, out []byte) error {
-	if outPath == "" {
+// writeRenderedOutput sends rendered bytes to the requested destination.
+// Non-raw outputs are normalized to exactly one trailing newline (or zero
+// bytes when the renderer produced nothing); raw mode preserves upstream
+// bytes verbatim so callers can byte-diff against the API response.
+func writeRenderedOutput(w io.Writer, outPath string, out []byte, verbatim bool) error {
+	if !verbatim {
 		if len(out) == 0 {
 			return nil
 		}
-		_, err := fmt.Fprintln(w, string(out))
+		if out[len(out)-1] != '\n' {
+			out = append(out, '\n')
+		}
+	}
+	if outPath == "" {
+		_, err := w.Write(out)
 		return err
 	}
 	if outPath == "-" {
