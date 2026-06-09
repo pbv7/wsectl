@@ -137,6 +137,10 @@ Use this when downstream tools process one record at a time.
 `--raw --out FILE` for large raw responses. If Worksection returns an API error inside an HTTP 200 JSON body, raw mode still prints or writes the
 exact body and exits with the Worksection API error code.
 
+Because raw mode emits the upstream bytes verbatim, the transform flags `--fields`, `--limit`, and `--jq` cannot be applied. If any of them are
+present alongside `--raw`, `wsectl` emits a one-line warning to stderr per flag and proceeds. Use `--quiet` to suppress the warnings, or pipe the
+raw body into `jq` for downstream processing.
+
 ## Field Projection
 
 ```bash

@@ -624,6 +624,51 @@ func TestRawOutputHonorsOutFile(t *testing.T) {
 	}
 }
 
+func TestRawWarnsWhenTransformsAreIgnored(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","data":[{"id":"1"},{"id":"2"}]}`))
+	}))
+	defer server.Close()
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_ACCOUNT_URL", server.URL)
+	t.Setenv("WSECTL_ACCESS_TOKEN", "token")
+
+	out, err := execute("api", "call", "get_users", "--raw", "--fields", "id", "--limit", "1", "--jq", ".data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"warning: --fields is ignored with --raw",
+		"warning: --limit is ignored with --raw",
+		"warning: --jq is ignored with --raw",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected warning %q in output:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, `{"status":"ok","data":[{"id":"1"},{"id":"2"}]}`) {
+		t.Fatalf("raw body was not preserved verbatim:\n%s", out)
+	}
+}
+
+func TestRawQuietSuppressesWarnings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","data":[{"id":"1"}]}`))
+	}))
+	defer server.Close()
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_ACCOUNT_URL", server.URL)
+	t.Setenv("WSECTL_ACCESS_TOKEN", "token")
+
+	out, err := execute("api", "call", "get_users", "--raw", "--fields", "id", "--quiet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "warning:") {
+		t.Fatalf("--quiet should suppress raw warnings:\n%s", out)
+	}
+}
+
 func TestVerboseEnvFallbackDiagnostic(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer env-token" {

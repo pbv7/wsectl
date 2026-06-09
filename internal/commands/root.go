@@ -314,6 +314,7 @@ func (s *state) callActionRaw(cmd *cobra.Command, clientInfo clientResult, actio
 }
 
 func (s *state) writeRawActionResult(cmd *cobra.Command, action string, raw []byte) error {
+	s.warnRawIgnoredFlags(cmd)
 	if err := writeRawBytes(cmd.OutOrStdout(), s.out, raw); err != nil {
 		return err
 	}
@@ -325,6 +326,26 @@ func (s *state) writeRawActionResult(cmd *cobra.Command, action string, raw []by
 		return &worksection.Error{Code: worksection.CodeAPI, Message: "Worksection API returned an error response"}
 	}
 	return nil
+}
+
+// warnRawIgnoredFlags emits a single stderr warning per ignored transform
+// flag. --raw streams the upstream HTTP body verbatim, so --fields/--limit/--jq
+// have no effect; silently dropping them is a foot-gun, hard-erroring would
+// break users who set these as default flags.
+func (s *state) warnRawIgnoredFlags(cmd *cobra.Command) {
+	if s.quiet {
+		return
+	}
+	w := cmd.ErrOrStderr()
+	if s.fields != "" {
+		fmt.Fprintln(w, "warning: --fields is ignored with --raw (raw mode emits the upstream response verbatim)")
+	}
+	if s.limit > 0 {
+		fmt.Fprintln(w, "warning: --limit is ignored with --raw (raw mode emits the upstream response verbatim)")
+	}
+	if s.jq != "" {
+		fmt.Fprintln(w, "warning: --jq is ignored with --raw (raw mode emits the upstream response verbatim)")
+	}
 }
 
 func (s *state) noteRawHistoryResult(action string, raw []byte) {
