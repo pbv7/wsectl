@@ -201,6 +201,24 @@ func TestApplyJQSingleResultHasNoTrailer(t *testing.T) {
 	}
 }
 
+func TestYAMLPreservesLargeIntegerPrecision(t *testing.T) {
+	// 9007199254740993 = 2^53 + 1, the canonical value that loses
+	// precision when routed through float64. The YAML output must
+	// preserve the exact digit string.
+	env := Success("call", "default", "", json.RawMessage(`{"big_id":9007199254740993,"small":42}`))
+	raw, err := YAML(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "big_id: 9007199254740993") {
+		t.Fatalf("YAML lost precision on 2^53+1 integer:\n%s", text)
+	}
+	if !strings.Contains(text, "small: 42") {
+		t.Fatalf("YAML lost small-integer rendering:\n%s", text)
+	}
+}
+
 func TestWriteNormalizesTrailingNewline(t *testing.T) {
 	env := Success("get_users", "default", "", json.RawMessage(`[{"id":"1","name":"Ada"}]`))
 	// YAML renderer emits its own trailing \n; non-YAML renderers do not.
