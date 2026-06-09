@@ -167,9 +167,10 @@ wsectl projects list --json --jq '.data[] | {id, name}'
 wsectl projects list --json --jq '.data[].id'
 ```
 
-`--jq` matches standard `jq` streaming: every value produced by the expression becomes a separate JSON document, newline-separated. A single result
-prints as one document; multiple results print as one document per line. This composes with `jq -r`, `xargs`, and `while read` the way a `jq`
-user expects.
+`--jq` matches standard `jq` streaming: every value produced by the expression becomes a separate JSON document, joined by a single newline.
+Scalar results (strings, numbers, booleans) render on one line each, so `--jq '.data[].id' | jq -r '.'` or `xargs`-style consumption works as a
+`jq` user expects. Object and array results are pretty-printed across multiple lines (matching default `jq` output); there is no compact-output
+flag yet, so pipe through `jq -c` if you need single-line objects per record.
 
 ## Client-Side Limits
 
