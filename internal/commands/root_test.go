@@ -538,6 +538,19 @@ func TestCommandSchemaDoesNotRequireCredentials(t *testing.T) {
 	}
 }
 
+func TestCommandSchemaHonorsYAMLFormat(t *testing.T) {
+	out, err := execute("tasks", "search", "--schema", "--yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "status: ok") || !strings.Contains(out, "name: search_tasks") {
+		t.Fatalf("expected YAML schema output, got:\n%s", out)
+	}
+	if strings.Contains(out, `"status": "ok"`) {
+		t.Fatalf("schema rendered as JSON despite --yaml:\n%s", out)
+	}
+}
+
 func TestCommandValidationBeforeAuth(t *testing.T) {
 	tests := [][]string{
 		{"tasks", "all", "--status", "done", "--json"},

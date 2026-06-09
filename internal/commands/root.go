@@ -415,7 +415,9 @@ func (s *state) writeActionSchema(cmd *cobra.Command, action string) error {
 	env := output.SuccessWithContract("schema "+action, "", "", raw, spec.Response)
 	s.noteHistoryEnvelope(env)
 	opts := s.outputOptions()
-	opts.Format = "json"
+	if opts.Format == "" || opts.Format == "auto" {
+		opts.Format = "json"
+	}
 	return output.Write(cmd.OutOrStdout(), env, opts)
 }
 
