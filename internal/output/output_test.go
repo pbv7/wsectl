@@ -201,6 +201,37 @@ func TestApplyJQSingleResultHasNoTrailer(t *testing.T) {
 	}
 }
 
+func TestWriteEmptyJQResultProducesNoOutput(t *testing.T) {
+	env := Success("users", "default", "", json.RawMessage(`[{"id":"1","name":"Ada"},{"id":"2","name":"Lin"}]`))
+	var buf bytes.Buffer
+	if err := Write(&buf, env, Options{Format: "json", JQ: ".data[] | select(.id==\"missing\")"}); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("empty jq stream should produce no stdout, got %q", buf.String())
+	}
+}
+
+func TestWriteTableSurfacesFieldWarnings(t *testing.T) {
+	env := Success("users", "default", "", json.RawMessage(`[{"id":"1","name":"Ada"}]`))
+	var buf bytes.Buffer
+	opts := Options{
+		Format:      "table",
+		Fields:      []string{"id", "nmae"},
+		KnownFields: []string{"id", "name"},
+	}
+	if err := Write(&buf, env, opts); err != nil {
+		t.Fatal(err)
+	}
+	text := buf.String()
+	if !strings.Contains(text, "Requested field nmae") {
+		t.Fatalf("table should surface field warnings, got:\n%s", text)
+	}
+	if !strings.Contains(text, "ID") || !strings.Contains(text, "NMAE") {
+		t.Fatalf("table missing requested columns:\n%s", text)
+	}
+}
+
 func TestTableHonorsRequestedColumns(t *testing.T) {
 	env := Success("events", "default", "", json.RawMessage(`[
 		{"action":"post","date_added":"2026-01-01 09:00","object":{"id":"42"}},

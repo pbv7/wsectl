@@ -62,6 +62,11 @@ func Table(env Envelope, contract worksection.ResponseContract, requested []stri
 	if omitted > 0 {
 		fmt.Fprintf(&b, "\nNote: table output shows %d of %d columns; use --fields or --json to inspect omitted fields.\n", len(keys), len(keys)+omitted)
 	}
+	for _, w := range env.Meta.Warnings {
+		if strings.HasPrefix(w, "Requested field ") {
+			fmt.Fprintf(&b, "\nNote: %s\n", w)
+		}
+	}
 	return bytes.TrimRight(b.Bytes(), "\n"), nil
 }
 

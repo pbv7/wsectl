@@ -163,6 +163,9 @@ func applyWriteJQ(out []byte, expr string) ([]byte, error) {
 
 func writeRenderedOutput(w io.Writer, outPath string, out []byte) error {
 	if outPath == "" {
+		if len(out) == 0 {
+			return nil
+		}
 		_, err := fmt.Fprintln(w, string(out))
 		return err
 	}
