@@ -38,6 +38,10 @@ if [[ -z "$PROJECT" || -z "$TASK" ]]; then
   echo "WSECTL_PROBE_PROJECT and WSECTL_PROBE_TASK are required" >&2
   exit 2
 fi
+if [[ ! -x "$WSECTL" ]]; then
+  echo "wsectl binary not found or not executable at $WSECTL — run 'make build' first" >&2
+  exit 2
+fi
 if ! command -v jq >/dev/null; then
   echo "jq is required" >&2
   exit 2
@@ -48,6 +52,10 @@ if ! command -v yq >/dev/null; then
 fi
 
 TMPDIR="$(mktemp -d)"
+if [[ ! -d "$TMPDIR" ]]; then
+  echo "failed to create temporary directory via mktemp -d" >&2
+  exit 2
+fi
 if [[ -z "${MATRIX_KEEP:-}" ]]; then
   trap 'rm -rf "$TMPDIR"' EXIT
 else
@@ -94,13 +102,16 @@ probe() {
       ;;
     ndjson)
       # Empty output is legitimate when the source array has zero records;
-      # the action exited cleanly so accept.
+      # the action exited cleanly so accept. NDJSON's contract is "one
+      # JSON document per *line*", so multi-line pretty-printed JSON or
+      # a single top-level array would violate the format even though
+      # both parse as valid JSON streams. Read raw input line by line in
+      # a single jq pass and run `fromjson` on each — one process, per
+      # line semantics, and no `-e` so legitimate `false`/`null` lines
+      # do not false-fail.
       if [[ -s "$out" ]]; then
-        local bad=0 line
-        while IFS= read -r line; do
-          printf '%s' "$line" | jq -e . >/dev/null 2>&1 || { bad=1; break; }
-        done < "$out"
-        [[ "$bad" -eq 0 ]] || { record_fail "$label" "ndjson: at least one line is not valid JSON"; return; }
+        jq -nR 'inputs | fromjson | empty' <"$out" >/dev/null 2>&1 \
+          || { record_fail "$label" "ndjson: at least one line is not valid JSON per line"; return; }
       fi
       ;;
     table)
