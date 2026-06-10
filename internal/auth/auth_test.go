@@ -275,6 +275,53 @@ func TestRefreshDoesNotRetryTerminalOAuthFailure(t *testing.T) {
 	}
 }
 
+func TestRefreshPreservesRefreshTokenWhenOmitted(t *testing.T) {
+	// RFC 6749 §6: the refresh response MAY omit refresh_token, meaning the
+	// client keeps using the existing one. The refresh must succeed and retain
+	// the old refresh token rather than failing or wiping it.
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","expires_in":86400}`)),
+		}, nil
+	})}
+	got, err := Refresh(context.Background(), client, SecretBundle{ClientID: "id", ClientSecret: "secret", RefreshToken: "keep-me"})
+	if err != nil {
+		t.Fatalf("refresh failed when response omitted refresh_token: %v", err)
+	}
+	if got.AccessToken != "new-access" {
+		t.Fatalf("access token = %q, want new-access", got.AccessToken)
+	}
+	if got.RefreshToken != "keep-me" {
+		t.Fatalf("refresh token = %q, want the existing token preserved", got.RefreshToken)
+	}
+}
+
+func TestRefreshClearsExpiryWhenExpiresInOmitted(t *testing.T) {
+	// Without expires_in, AccessExpires must be cleared to zero (unknown),
+	// matching NeedsRefresh's unknown-expiry model, rather than retaining a
+	// stale past timestamp that would refresh on every call.
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh"}`)),
+		}, nil
+	})}
+	stale := SecretBundle{ClientID: "id", ClientSecret: "secret", RefreshToken: "old", AccessExpires: time.Unix(1, 0)}
+	got, err := Refresh(context.Background(), client, stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.AccessExpires.IsZero() {
+		t.Fatalf("AccessExpires = %v, want zero (unknown) when expires_in is omitted", got.AccessExpires)
+	}
+	if NeedsRefresh(got.AccessExpires, time.Now()) {
+		t.Fatal("a zero (unknown) expiry must not trigger a proactive refresh")
+	}
+}
+
 func TestEncryptedFileStoreWritesVersionedArgon2Payload(t *testing.T) {
 	t.Setenv("WSECTL_SECRET_PASSPHRASE", "passphrase")
 	ref := SecretRef{Scheme: "encrypted-file", Name: t.TempDir() + "/secret.json"}

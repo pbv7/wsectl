@@ -136,20 +136,29 @@ func decodeRefreshBundle(resp *http.Response, b SecretBundle) (SecretBundle, err
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return b, err
 	}
-	if body.AccessToken == "" || body.RefreshToken == "" {
-		return b, fmt.Errorf("oauth refresh response did not include tokens")
+	// RFC 6749 §6: the refresh response MAY omit refresh_token, in which case
+	// the existing one is retained. Only access_token is required.
+	if body.AccessToken == "" {
+		return b, fmt.Errorf("oauth refresh response did not include an access token")
 	}
 	return applyRefreshBody(b, body.AccessToken, body.RefreshToken, body.AccountURL, body.ExpiresIn), nil
 }
 
 func applyRefreshBody(b SecretBundle, accessToken, refreshToken, accountURL string, expiresIn int) SecretBundle {
 	b.AccessToken = accessToken
-	b.RefreshToken = refreshToken
+	if refreshToken != "" {
+		b.RefreshToken = refreshToken // a rotated token replaces the old one
+	}
 	if accountURL != "" {
 		b.AccountURL = accountURL
 	}
 	if expiresIn > 0 {
 		b.AccessExpires = time.Now().Add(time.Duration(expiresIn) * time.Second)
+	} else {
+		// Unknown expiry: clear it so NeedsRefresh treats the token as
+		// non-expiring instead of refreshing on every call against a stale
+		// past timestamp.
+		b.AccessExpires = time.Time{}
 	}
 	return b
 }
