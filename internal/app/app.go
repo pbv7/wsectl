@@ -86,18 +86,26 @@ func errorFormat(ctx context.Context, args []string) string {
 }
 
 func configPathFromArgs(args []string) string {
-	for i, a := range args {
+	out := ""
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		if a == "--" {
 			break // positionals after the terminator are not flags
 		}
-		if a == "--config" && i+1 < len(args) {
-			return args[i+1]
+		if a == "--config" {
+			// Consume the next token as the value (skip it), and let a later
+			// --config win, matching pflag's last-occurrence semantics.
+			if i+1 < len(args) {
+				out = args[i+1]
+				i++
+			}
+			continue
 		}
 		if v, ok := strings.CutPrefix(a, "--config="); ok {
-			return v
+			out = v
 		}
 	}
-	return ""
+	return out
 }
 
 type appRenderedError struct {

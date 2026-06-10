@@ -56,6 +56,10 @@ func TestFlagOutputDetection(t *testing.T) {
 		{name: "json equals 1", args: []string{"me", "--json=1"}, want: "json"},
 		{name: "json equals false is not set", args: []string{"me", "--json=false"}, want: ""},
 		{name: "json equals false then table", args: []string{"me", "--json=false", "--table"}, want: "table"},
+		// A later parsed value wins, including a false that clears an earlier
+		// true (matches Cobra's repeated-flag semantics).
+		{name: "json then json=false clears it", args: []string{"me", "--json", "--json=false"}, want: ""},
+		{name: "json=false then json sets it", args: []string{"me", "--json=false", "--json"}, want: "json"},
 		// Flags after the -- terminator are positional, not output selectors.
 		{name: "table after terminator ignored", args: []string{"me", "--", "foo", "--table"}, want: ""},
 		{name: "json before terminator honored", args: []string{"me", "--json", "--", "--table"}, want: "json"},
@@ -249,7 +253,8 @@ func TestConfigPathFromArgs(t *testing.T) {
 	}{
 		{"flag with value", []string{"me", "--config", "/a.toml"}, "/a.toml"},
 		{"equals form", []string{"me", "--config=/b.toml"}, "/b.toml"},
-		{"first occurrence wins", []string{"me", "--config", "/a.toml", "--config", "/c.toml"}, "/a.toml"},
+		{"last occurrence wins", []string{"me", "--config", "/a.toml", "--config", "/c.toml"}, "/c.toml"},
+		{"consumes value that looks like a flag", []string{"me", "--config", "--config"}, "--config"},
 		// A --config after the terminator is a positional argument, not a flag,
 		// and must not influence config loading for error rendering.
 		{"after terminator ignored", []string{"me", "--", "--config", "/c.toml"}, ""},
