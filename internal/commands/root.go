@@ -313,16 +313,16 @@ func (s *state) runActionWithOptions(cmd *cobra.Command, action string, params m
 		return s.writeActionSchema(cmd, action)
 	}
 	if err := worksection.ValidateAction(action, params, allowUnknown); err != nil {
-		return writeFailure(cmd.OutOrStderr(), s, action, "", err)
+		return writeFailure(cmd.ErrOrStderr(), s, action, "", err)
 	}
 	clientInfo, err := s.client(cmd.Context())
 	if err != nil {
-		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, err)
+		return writeFailure(cmd.ErrOrStderr(), s, action, clientInfo.profileName, err)
 	}
 	s.noteHistoryClient(clientInfo)
 	raw, err := s.callActionRaw(cmd, clientInfo, action, params)
 	if err != nil {
-		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, err)
+		return writeFailure(cmd.ErrOrStderr(), s, action, clientInfo.profileName, err)
 	}
 	if s.format == "raw" {
 		return s.writeRawActionResult(cmd, action, raw)
@@ -395,7 +395,7 @@ func (s *state) writeParsedActionResult(cmd *cobra.Command, action string, clien
 		return err
 	}
 	if resp.Status != "" && resp.Status != "ok" {
-		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, worksectionAPIError(action, resp))
+		return writeFailure(cmd.ErrOrStderr(), s, action, clientInfo.profileName, worksectionAPIError(action, resp))
 	}
 	env, opts, err := s.actionOutput(action, clientInfo, resp, transform)
 	if err != nil {
@@ -511,7 +511,7 @@ func wrapCommandErrors(root *cobra.Command, s *state) {
 				if err == nil || isRendered(err) {
 					return err
 				}
-				return writeFailure(cmd.OutOrStderr(), s, cmd.CommandPath(), "", err)
+				return writeFailure(cmd.ErrOrStderr(), s, cmd.CommandPath(), "", err)
 			}
 		}
 		for _, child := range cmd.Commands() {
