@@ -62,18 +62,24 @@ func RunWithIO(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	return classified
 }
 
-// errorFormat resolves the format used to render a top-level error. It honors
-// an explicit --json/--yaml/--ndjson/--output flag or WSECTL_OUTPUT first, then
-// falls back to the config file's default output, so a usage error raised
-// before the command body loads config still respects a configured machine
-// format. Returns "" for human (plain-text) rendering.
+// errorFormat resolves the format used to render a top-level error using the
+// same precedence as normal output: an explicit output flag, then
+// WSECTL_OUTPUT, then the config file's default. It returns the machine format
+// to render an envelope, or "" for human (plain-text) rendering — including
+// when an explicit human selector (--table/--raw/--output table) is chosen
+// over a machine config default.
 func errorFormat(ctx context.Context, args []string) string {
-	if f := machineFormat(args); f != "" {
-		return f
+	format := flagOutput(args)
+	if format == "" {
+		format = os.Getenv("WSECTL_OUTPUT")
 	}
-	cfg, err := config.Load(ctx, config.Overrides{ConfigPath: configPathFromArgs(args)})
-	if err == nil && isMachineFormat(cfg.Defaults.Output) {
-		return cfg.Defaults.Output
+	if format == "" {
+		if cfg, err := config.Load(ctx, config.Overrides{ConfigPath: configPathFromArgs(args)}); err == nil {
+			format = cfg.Defaults.Output
+		}
+	}
+	if isMachineFormat(format) {
+		return format
 	}
 	return ""
 }
@@ -113,28 +119,38 @@ func appMachineError(err error) appRenderedError {
 	return appRenderedError{err: worksection.UsageError("%s", err.Error())}
 }
 
-func machineFormat(args []string) string {
+// flagOutput returns the output format selected by CLI flags, mirroring the
+// command layer's resolution in PersistentPreRun (internal/commands/root.go):
+// --output VALUE is the base, then the --json/--yaml/--table/--ndjson/--raw
+// shortcuts override it in that fixed order — so the precedence is by flag,
+// not by argument position (e.g. --json always beats --output table, and
+// --table always beats --json). Returns "" when no output flag is present.
+// errorFormat layers env and config defaults beneath this.
+func flagOutput(args []string) string {
+	out := ""
+	has := map[string]bool{}
 	for i, arg := range args {
-		switch arg {
-		case "--json":
-			return "json"
-		case "--yaml":
-			return "yaml"
-		case "--ndjson":
-			return "ndjson"
-		case "--output":
-			if i+1 < len(args) && isMachineFormat(args[i+1]) {
-				return args[i+1]
-			}
+		if arg == "--output" && i+1 < len(args) {
+			out = args[i+1]
 		}
-		if value, ok := strings.CutPrefix(arg, "--output="); ok && isMachineFormat(value) {
-			return value
+		if value, ok := strings.CutPrefix(arg, "--output="); ok {
+			out = value
+		}
+		has[arg] = true
+	}
+	// Same fixed order as PersistentPreRun: later entries win.
+	for _, sc := range []struct{ flag, format string }{
+		{"--json", "json"},
+		{"--yaml", "yaml"},
+		{"--table", "table"},
+		{"--ndjson", "ndjson"},
+		{"--raw", "raw"},
+	} {
+		if has[sc.flag] {
+			out = sc.format
 		}
 	}
-	if env := os.Getenv("WSECTL_OUTPUT"); isMachineFormat(env) {
-		return env
-	}
-	return ""
+	return out
 }
 
 func isMachineFormat(format string) bool {

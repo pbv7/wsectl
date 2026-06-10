@@ -29,8 +29,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestMachineFormatDetection(t *testing.T) {
-	t.Setenv("WSECTL_OUTPUT", "")
+func TestFlagOutputDetection(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
@@ -39,21 +38,26 @@ func TestMachineFormatDetection(t *testing.T) {
 		{name: "json shortcut", args: []string{"me", "--json"}, want: "json"},
 		{name: "yaml shortcut", args: []string{"--yaml", "me"}, want: "yaml"},
 		{name: "ndjson shortcut", args: []string{"tasks", "all", "--ndjson"}, want: "ndjson"},
+		{name: "table shortcut", args: []string{"me", "--table"}, want: "table"},
+		{name: "raw shortcut", args: []string{"me", "--raw"}, want: "raw"},
 		{name: "output flag", args: []string{"--output", "json", "me"}, want: "json"},
-		{name: "output equals", args: []string{"me", "--output=yaml"}, want: "yaml"},
-		{name: "human output ignored", args: []string{"me", "--output", "table"}, want: ""},
+		{name: "output equals human", args: []string{"me", "--output=table"}, want: "table"},
+		// Precedence mirrors PersistentPreRun: shortcuts override --output, and
+		// the fixed order (json<yaml<table<ndjson<raw) decides between
+		// shortcuts — independent of argument position.
+		{name: "shortcut beats --output, order A", args: []string{"me", "--json", "--output", "table"}, want: "json"},
+		{name: "shortcut beats --output, order B", args: []string{"me", "--output", "table", "--json"}, want: "json"},
+		{name: "table beats json regardless of order A", args: []string{"me", "--json", "--table"}, want: "table"},
+		{name: "table beats json regardless of order B", args: []string{"me", "--table", "--json"}, want: "table"},
+		{name: "raw beats ndjson", args: []string{"me", "--ndjson", "--raw"}, want: "raw"},
+		{name: "no output flag", args: []string{"me"}, want: ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := machineFormat(tt.args); got != tt.want {
-				t.Fatalf("machineFormat(%v) = %q, want %q", tt.args, got, tt.want)
+			if got := flagOutput(tt.args); got != tt.want {
+				t.Fatalf("flagOutput(%v) = %q, want %q", tt.args, got, tt.want)
 			}
 		})
-	}
-
-	t.Setenv("WSECTL_OUTPUT", "json")
-	if got := machineFormat([]string{"me"}); got != "json" {
-		t.Fatalf("env machine format = %q, want json", got)
 	}
 }
 
@@ -132,6 +136,50 @@ func TestUsageErrorHonorsConfigDefaultFormat(t *testing.T) {
 	}
 	if !strings.Contains(stderr, `"status": "error"`) || !strings.Contains(stderr, `"code": "usage"`) {
 		t.Fatalf("config default json format not honored for usage error; got:\n%s", stderr)
+	}
+}
+
+// An explicit human output selector (--table/--raw/--output table) must give
+// a plain-text error even when the config default is a machine format, just as
+// it gives human output for normal command results. Guards the precedence:
+// explicit flag > config default.
+func TestExplicitHumanFormatOverridesConfigDefaultForErrors(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(cfgPath, []byte("[defaults]\noutput = \"json\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WSECTL_CONFIG", cfgPath)
+	t.Setenv("WSECTL_OUTPUT", "")
+
+	for _, args := range [][]string{
+		{"projects", "list", "--badflag", "--table"},
+		{"projects", "list", "--badflag", "--raw"},
+		{"projects", "list", "--badflag", "--output", "table"},
+	} {
+		_, stderr, exit := runCapture(t, args...)
+		if exit != 2 {
+			t.Fatalf("args %v: exit = %d, want 2", args, exit)
+		}
+		if strings.Contains(stderr, `"status"`) {
+			t.Fatalf("args %v: explicit human format must render plain text, got an envelope:\n%s", args, stderr)
+		}
+	}
+}
+
+// A usage error must render in the same format the same flags would give
+// successful output. Because shortcuts override --output in a fixed order
+// (not by argument position), `--json --output table` resolves to json for
+// both, so the error is a JSON envelope — not plain text.
+func TestUsageErrorFormatMatchesShortcutPrecedence(t *testing.T) {
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_OUTPUT", "")
+	_, stderr, exit := runCapture(t, "projects", "list", "--badflag", "--json", "--output", "table")
+	if exit != 2 {
+		t.Fatalf("exit = %d, want 2", exit)
+	}
+	if !strings.Contains(stderr, `"code": "usage"`) {
+		t.Fatalf("--json must win over --output table (matching successful output); got:\n%s", stderr)
 	}
 }
 
