@@ -734,6 +734,90 @@ func TestTableUsesActionCuratedColumns(t *testing.T) {
 	}
 }
 
+func TestResolveAccountURL(t *testing.T) {
+	// Precedence ladder: flag > env > credential URL > configured profile URL.
+	const (
+		flag = "https://flag.example.com"
+		env  = "https://env.example.com"
+		cred = "https://credential.example.com"
+		conf = "https://configured.example.com"
+	)
+	cases := []struct {
+		name                              string
+		flag, env, credential, configured string
+		want                              string
+	}{
+		{"flag beats everything", flag, env, cred, conf, flag},
+		{"env beats credential and config", "", env, cred, conf, env},
+		// Regression guard: an OAuth-issued credential URL must win over the
+		// ordinary configured profile URL when there is no explicit override,
+		// otherwise the access token is sent to the configured host instead
+		// of the authorized one.
+		{"credential beats configured (no override)", "", "", cred, conf, cred},
+		{"configured is the final fallback", "", "", "", conf, conf},
+		{"empty when nothing set", "", "", "", "", ""},
+		// Flag must outrank env even though both are explicit overrides.
+		{"flag beats env", flag, env, "", "", flag},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveAccountURL(tc.flag, tc.env, tc.credential, tc.configured); got != tc.want {
+				t.Fatalf("resolveAccountURL(%q,%q,%q,%q) = %q, want %q",
+					tc.flag, tc.env, tc.credential, tc.configured, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCredentialAccountURLWinsOverConfigured(t *testing.T) {
+	// End-to-end guard for the regression: with no --account-url override,
+	// the URL stored with the credential (e.g. an OAuth-issued account_url)
+	// must win over the configured profile URL, so the request reaches the
+	// authorized host. The stub server is the credential host; the profile
+	// points at a dead "configured" host that must NOT be contacted.
+	var hits int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if r.URL.Query().Get("action") != "me" {
+			t.Fatalf("unexpected action %q", r.URL.Query().Get("action"))
+		}
+		_, _ = w.Write([]byte(`{"status":"ok","data":{"id":"1","name":"Ada"}}`))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	secretPath := filepath.Join(dir, "secret.json")
+	if err := os.WriteFile(secretPath, fmt.Appendf(nil, `{"access_token":"tok","account_url":%q}`, server.URL), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `current_profile = "default"
+
+[profiles.default]
+account_url = "https://dead-configured.invalid"
+auth_type = "oauth2"
+secret_ref = %q
+`, "plaintext:"+secretPath), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WSECTL_CONFIG", configPath)
+
+	out, err := execute("me", "--json")
+	if err != nil {
+		t.Fatalf("command failed (request likely went to the configured dead host): %v\n%s", err, out)
+	}
+	if hits == 0 {
+		t.Fatal("credential host was never contacted; configured URL wrongly took precedence")
+	}
+	// Write-back: the envelope's account_url reflects the host actually used.
+	if !strings.Contains(out, server.URL) {
+		t.Fatalf("envelope account_url did not reflect the resolved credential host:\n%s", out)
+	}
+	if strings.Contains(out, "dead-configured.invalid") {
+		t.Fatalf("envelope leaked the configured (unused) host:\n%s", out)
+	}
+}
+
 func TestVerboseEnvFallbackDiagnostic(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer env-token" {
