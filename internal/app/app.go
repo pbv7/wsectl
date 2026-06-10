@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/pbv7/wsectl/internal/commands"
@@ -48,11 +50,10 @@ func RunWithIO(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	// from inside a command body keep their own classification (a
 	// worksection.Error keeps its code; a bare internal error stays general
 	// exit 1), so output format never changes the exit code.
-	classified := err // carries the exit code
-	renderErr := err  // displayed; unwrapped so the envelope reports the right code
-	if !commands.EnteredBody(root) {
-		wrapped := appMachineError(err)
-		classified, renderErr = wrapped, wrapped.err
+	classified := classifyTopLevelError(err, commands.EnteredBody(root))
+	renderErr := classified // displayed; unwrapped so the envelope reports the right code
+	if wrapped, ok := classified.(appRenderedError); ok {
+		renderErr = wrapped.err
 	}
 	if format := errorFormat(ctx, args); format != "" {
 		_ = output.Write(root.ErrOrStderr(), output.Failure("wsectl", "", renderErr), output.Options{Format: format})
@@ -86,6 +87,9 @@ func errorFormat(ctx context.Context, args []string) string {
 
 func configPathFromArgs(args []string) string {
 	for i, a := range args {
+		if a == "--" {
+			break // positionals after the terminator are not flags
+		}
 		if a == "--config" && i+1 < len(args) {
 			return args[i+1]
 		}
@@ -119,6 +123,19 @@ func appMachineError(err error) appRenderedError {
 	return appRenderedError{err: worksection.UsageError("%s", err.Error())}
 }
 
+// classifyTopLevelError assigns the exit-code classification for an error that
+// reached the entry point without being rendered by the command layer. An
+// error that surfaced before any command body ran is a cobra
+// flag/argument/command-resolution failure → usage. Exceptions kept general:
+// an in-body error keeps its own classification, and a context
+// cancellation/deadline is never the user's usage mistake.
+func classifyTopLevelError(err error, bodyEntered bool) error {
+	if bodyEntered || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return appMachineError(err)
+}
+
 // flagOutput returns the output format selected by CLI flags, mirroring the
 // command layer's resolution in PersistentPreRun (internal/commands/root.go):
 // --output VALUE is the base, then the --json/--yaml/--table/--ndjson/--raw
@@ -127,27 +144,44 @@ func appMachineError(err error) appRenderedError {
 // --table always beats --json). Returns "" when no output flag is present.
 // errorFormat layers env and config defaults beneath this.
 func flagOutput(args []string) string {
+	// Fixed order matches PersistentPreRun: later entries win.
+	shortcuts := []string{"json", "yaml", "table", "ndjson", "raw"}
 	out := ""
-	has := map[string]bool{}
-	for i, arg := range args {
-		if arg == "--output" && i+1 < len(args) {
-			out = args[i+1]
+	set := map[string]bool{}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			break // a standalone terminator: everything after is positional
+		}
+		if arg == "--output" {
+			// --output consumes the next token as its value, even if that
+			// token looks like another flag (e.g. --output --json); skip it so
+			// it is not re-read as a shortcut.
+			if i+1 < len(args) {
+				out = args[i+1]
+				i++
+			}
+			continue
 		}
 		if value, ok := strings.CutPrefix(arg, "--output="); ok {
 			out = value
+			continue
 		}
-		has[arg] = true
+		for _, name := range shortcuts {
+			switch {
+			case arg == "--"+name:
+				set[name] = true // bare boolean flag is true
+			case strings.HasPrefix(arg, "--"+name+"="):
+				// pflag accepts --json=true/false/1/0; a malformed value is
+				// left for the command layer to reject, treated as set here.
+				b, err := strconv.ParseBool(strings.TrimPrefix(arg, "--"+name+"="))
+				set[name] = err != nil || b
+			}
+		}
 	}
-	// Same fixed order as PersistentPreRun: later entries win.
-	for _, sc := range []struct{ flag, format string }{
-		{"--json", "json"},
-		{"--yaml", "yaml"},
-		{"--table", "table"},
-		{"--ndjson", "ndjson"},
-		{"--raw", "raw"},
-	} {
-		if has[sc.flag] {
-			out = sc.format
+	for _, name := range shortcuts {
+		if set[name] {
+			out = name
 		}
 	}
 	return out

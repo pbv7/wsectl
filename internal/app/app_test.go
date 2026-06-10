@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -50,6 +51,19 @@ func TestFlagOutputDetection(t *testing.T) {
 		{name: "table beats json regardless of order A", args: []string{"me", "--json", "--table"}, want: "table"},
 		{name: "table beats json regardless of order B", args: []string{"me", "--table", "--json"}, want: "table"},
 		{name: "raw beats ndjson", args: []string{"me", "--ndjson", "--raw"}, want: "raw"},
+		// pflag boolean forms, matching the command layer's GetBool.
+		{name: "json equals true", args: []string{"me", "--json=true"}, want: "json"},
+		{name: "json equals 1", args: []string{"me", "--json=1"}, want: "json"},
+		{name: "json equals false is not set", args: []string{"me", "--json=false"}, want: ""},
+		{name: "json equals false then table", args: []string{"me", "--json=false", "--table"}, want: "table"},
+		// Flags after the -- terminator are positional, not output selectors.
+		{name: "table after terminator ignored", args: []string{"me", "--", "foo", "--table"}, want: ""},
+		{name: "json before terminator honored", args: []string{"me", "--json", "--", "--table"}, want: "json"},
+		// --output consumes its value even when it looks like a flag: the
+		// consumed token is not re-read as a shortcut.
+		{name: "output value looking like json shortcut", args: []string{"me", "--output", "--json"}, want: "--json"},
+		{name: "output value looking like table shortcut", args: []string{"me", "--output", "--table"}, want: "--table"},
+		{name: "real shortcut after consumed output value", args: []string{"me", "--output", "--json", "--table"}, want: "table"},
 		{name: "no output flag", args: []string{"me"}, want: ""},
 	}
 	for _, tt := range tests {
@@ -203,6 +217,83 @@ func TestInternalErrorStaysGeneralAcrossFormats(t *testing.T) {
 			t.Fatalf("args %v: exit = %d, want 1 (general, not usage)", args, exit)
 		}
 	}
+}
+
+// A --config after the -- terminator is positional and must not load a config
+// file that changes error rendering. With WSECTL_CONFIG pointing at a missing
+// file, the usage error stays plain text even though the positional config
+// would have set a machine default.
+func TestConfigAfterTerminatorDoesNotAffectErrorFormat(t *testing.T) {
+	dir := t.TempDir()
+	jsonCfg := filepath.Join(dir, "json.toml")
+	if err := os.WriteFile(jsonCfg, []byte("[defaults]\noutput = \"json\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WSECTL_CONFIG", filepath.Join(dir, "missing.toml"))
+	t.Setenv("WSECTL_OUTPUT", "")
+
+	_, stderr, exit := runCapture(t, "projects", "list", "--badflag", "--", "--config", jsonCfg)
+	if exit != 2 {
+		t.Fatalf("exit = %d, want 2", exit)
+	}
+	if strings.Contains(stderr, `"status"`) {
+		t.Fatalf("positional --config after -- changed error format to an envelope:\n%s", stderr)
+	}
+}
+
+func TestConfigPathFromArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"flag with value", []string{"me", "--config", "/a.toml"}, "/a.toml"},
+		{"equals form", []string{"me", "--config=/b.toml"}, "/b.toml"},
+		{"first occurrence wins", []string{"me", "--config", "/a.toml", "--config", "/c.toml"}, "/a.toml"},
+		// A --config after the terminator is a positional argument, not a flag,
+		// and must not influence config loading for error rendering.
+		{"after terminator ignored", []string{"me", "--", "--config", "/c.toml"}, ""},
+		{"none", []string{"me"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := configPathFromArgs(tt.args); got != tt.want {
+				t.Fatalf("configPathFromArgs(%v) = %q, want %q", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClassifyTopLevelError(t *testing.T) {
+	usage := errors.New("unknown flag: --badflag")              // bare cobra parse error
+	apiErr := &worksection.Error{Code: worksection.CodeNetwork} // in-body, exit 5
+	bare := errors.New("malformed response")                    // in-body internal error
+
+	t.Run("pre-body bare error becomes usage exit 2", func(t *testing.T) {
+		if got := ExitCode(classifyTopLevelError(usage, false)); got != 2 {
+			t.Fatalf("exit = %d, want 2", got)
+		}
+	})
+	t.Run("pre-body context cancellation stays general exit 1", func(t *testing.T) {
+		if got := ExitCode(classifyTopLevelError(context.Canceled, false)); got != 1 {
+			t.Fatalf("exit = %d, want 1 (cancellation is not a usage error)", got)
+		}
+	})
+	t.Run("pre-body deadline stays general exit 1", func(t *testing.T) {
+		if got := ExitCode(classifyTopLevelError(context.DeadlineExceeded, false)); got != 1 {
+			t.Fatalf("exit = %d, want 1", got)
+		}
+	})
+	t.Run("in-body error keeps its own code", func(t *testing.T) {
+		if got := ExitCode(classifyTopLevelError(apiErr, true)); got != 5 {
+			t.Fatalf("exit = %d, want 5 (in-body errors keep their classification)", got)
+		}
+	})
+	t.Run("in-body bare error stays general exit 1", func(t *testing.T) {
+		if got := ExitCode(classifyTopLevelError(bare, true)); got != 1 {
+			t.Fatalf("exit = %d, want 1", got)
+		}
+	})
 }
 
 // secretToken is sent as the OAuth bearer credential in the matrix below; no
