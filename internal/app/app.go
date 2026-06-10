@@ -54,7 +54,7 @@ func RunWithIO(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		wrapped := appMachineError(err)
 		classified, renderErr = wrapped, wrapped.err
 	}
-	if format := errorFormat(args); format != "" {
+	if format := errorFormat(ctx, args); format != "" {
 		_ = output.Write(root.ErrOrStderr(), output.Failure("wsectl", "", renderErr), output.Options{Format: format})
 	} else {
 		_, _ = fmt.Fprintln(root.ErrOrStderr(), renderErr.Error())
@@ -67,11 +67,11 @@ func RunWithIO(ctx context.Context, args []string, stdout, stderr io.Writer) err
 // falls back to the config file's default output, so a usage error raised
 // before the command body loads config still respects a configured machine
 // format. Returns "" for human (plain-text) rendering.
-func errorFormat(args []string) string {
+func errorFormat(ctx context.Context, args []string) string {
 	if f := machineFormat(args); f != "" {
 		return f
 	}
-	cfg, err := config.Load(context.Background(), config.Overrides{ConfigPath: configPathFromArgs(args)})
+	cfg, err := config.Load(ctx, config.Overrides{ConfigPath: configPathFromArgs(args)})
 	if err == nil && isMachineFormat(cfg.Defaults.Output) {
 		return cfg.Defaults.Output
 	}
