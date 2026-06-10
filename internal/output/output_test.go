@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/pbv7/wsectl/internal/worksection"
+	"gopkg.in/yaml.v3"
 )
 
 func TestJSONEnvelope(t *testing.T) {
@@ -198,6 +199,65 @@ func TestApplyJQSingleResultHasNoTrailer(t *testing.T) {
 	}
 	if string(out) != "1" {
 		t.Fatalf("jq output = %q, want \"1\"", out)
+	}
+}
+
+func TestYAMLAcceptsJSONForwardSlashEscape(t *testing.T) {
+	// yaml.v3's tokenizer rejects JSON's optional \/ escape with
+	// "found unknown escape character". Worksection emits \/ in
+	// path-like fields ("page": "/project/.../task/.../") so the
+	// YAML renderer must decode JSON itself rather than route the
+	// raw bytes through yaml.Unmarshal. Regression for the bug that
+	// shipped in PR #7 and broke every YAML render of non-trivial
+	// API data.
+	env := Success("tasks", "default", "", json.RawMessage(`{"page":"\/project\/1\/2\/","name":"Task"}`))
+	raw, err := YAML(env)
+	if err != nil {
+		t.Fatalf("YAML render failed on JSON \\/ escape: %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, `page: /project/1/2/`) {
+		t.Fatalf("forward slash not preserved in YAML output:\n%s", text)
+	}
+}
+
+func TestYAMLHandlesJSONEscapesEndToEnd(t *testing.T) {
+	// All standard JSON string escapes must survive decode + encode.
+	// `\/`, `\n`, `\t`, `\"`, `\\`, `\uXXXX`. yaml.v3 emits control
+	// characters in double-quoted form, so just assert the rendered
+	// YAML reparses cleanly and round-trips back to the same Go
+	// values rather than asserting a fixed byte pattern.
+	src := `{
+		"slash":  "a\/b\/c",
+		"quote":  "she said \"hi\"",
+		"newline":"line1\nline2",
+		"tab":    "col1\tcol2",
+		"back":   "C:\\path",
+		"unicode":"smile ☺ end"
+	}`
+	env := Success("escapes", "default", "", json.RawMessage(src))
+	raw, err := YAML(env)
+	if err != nil {
+		t.Fatalf("YAML render failed: %v", err)
+	}
+	var round struct {
+		Data map[string]string `yaml:"data"`
+	}
+	if err := yaml.Unmarshal(raw, &round); err != nil {
+		t.Fatalf("rendered YAML did not reparse: %v\n%s", err, raw)
+	}
+	want := map[string]string{
+		"slash":   "a/b/c",
+		"quote":   `she said "hi"`,
+		"newline": "line1\nline2",
+		"tab":     "col1\tcol2",
+		"back":    `C:\path`,
+		"unicode": "smile ☺ end",
+	}
+	for k, v := range want {
+		if round.Data[k] != v {
+			t.Fatalf("escape %q: yaml round-trip = %q, want %q", k, round.Data[k], v)
+		}
 	}
 }
 

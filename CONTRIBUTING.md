@@ -81,6 +81,7 @@ make race
 make lint
 make lint-md
 make lint-workflows
+make lint-shell
 make vuln
 make coverage
 make release-check
@@ -95,6 +96,13 @@ golangci-lint test-file linting after the toolchain issue is resolved.
 `make lint-md` uses the lockfile-managed `markdownlint-cli2` npm dev dependency with the prose line limit from `.markdownlint.json`. The rule is
 relaxed for code blocks, headings, and tables, but prose warnings are fixed instead of disabled. `make lint-workflows` runs the `actionlint` Go tool
 declared in `go.mod` against GitHub Actions workflow files.
+
+`make lint-shell` runs `shellcheck` against every `scripts/*.sh` file. Install it locally with `brew install shellcheck` on macOS or
+`apt-get install shellcheck` on Debian/Ubuntu (Windows contributors typically run the bash toolchain under WSL and install it the same way as
+Ubuntu). When shellcheck is not installed, the target prints a warning and exits cleanly so contributors without it can still run `make ci`. CI
+installs shellcheck on demand and enforces the check there, so any regression lands on the PR rather than blocking local development. New shell
+scripts must be clean against shellcheck's default warning set; suppress findings with inline `# shellcheck disable=SCxxxx` only with a
+justification comment.
 
 `make vuln` runs `govulncheck` for Go packages and `npm audit --audit-level=high` for the Markdown lint toolchain.
 
