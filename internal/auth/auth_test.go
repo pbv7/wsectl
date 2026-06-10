@@ -275,6 +275,122 @@ func TestRefreshDoesNotRetryTerminalOAuthFailure(t *testing.T) {
 	}
 }
 
+func TestRefreshPreservesRefreshTokenWhenOmitted(t *testing.T) {
+	// RFC 6749 §6: the refresh response MAY omit refresh_token, meaning the
+	// client keeps using the existing one. The refresh must succeed and retain
+	// the old refresh token rather than failing or wiping it.
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","expires_in":86400}`)),
+		}, nil
+	})}
+	got, err := Refresh(context.Background(), client, SecretBundle{ClientID: "id", ClientSecret: "secret", RefreshToken: "keep-me"})
+	if err != nil {
+		t.Fatalf("refresh failed when response omitted refresh_token: %v", err)
+	}
+	if got.AccessToken != "new-access" {
+		t.Fatalf("access token = %q, want new-access", got.AccessToken)
+	}
+	if got.RefreshToken != "keep-me" {
+		t.Fatalf("refresh token = %q, want the existing token preserved", got.RefreshToken)
+	}
+}
+
+func TestRefreshClearsExpiryWhenExpiresInOmitted(t *testing.T) {
+	// Without expires_in, AccessExpires must be cleared to zero (unknown),
+	// matching NeedsRefresh's unknown-expiry model, rather than retaining a
+	// stale past timestamp that would refresh on every call.
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh"}`)),
+		}, nil
+	})}
+	stale := SecretBundle{ClientID: "id", ClientSecret: "secret", RefreshToken: "old", AccessExpires: time.Unix(1, 0)}
+	got, err := Refresh(context.Background(), client, stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.AccessExpires.IsZero() {
+		t.Fatalf("AccessExpires = %v, want zero (unknown) when expires_in is omitted", got.AccessExpires)
+	}
+	if NeedsRefresh(got.AccessExpires, time.Now()) {
+		t.Fatal("a zero (unknown) expiry must not trigger a proactive refresh")
+	}
+}
+
+func TestRefreshHonorsExplicitZeroExpiresIn(t *testing.T) {
+	// expires_in: 0 is a present (zero-lifetime) value, distinct from an
+	// omitted field. It must set an already-expired timestamp so the next
+	// command refreshes, not be treated as unknown/non-expiring.
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh","expires_in":0}`)),
+		}, nil
+	})}
+	got, err := Refresh(context.Background(), client, SecretBundle{ClientID: "id", ClientSecret: "secret", RefreshToken: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccessExpires.IsZero() {
+		t.Fatal("explicit expires_in:0 must set an expiry, not be treated as unknown")
+	}
+	if !NeedsRefresh(got.AccessExpires, time.Now()) {
+		t.Fatal("a zero-lifetime token must be considered in need of refresh")
+	}
+}
+
+func TestRefreshClampsHugeExpiresIn(t *testing.T) {
+	// A pathologically large expires_in must not overflow time.Duration
+	// (int64 nanoseconds) into a negative/past timestamp, which would make
+	// NeedsRefresh always true and loop.
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh","expires_in":9999999999}`)),
+		}, nil
+	})}
+	got, err := Refresh(context.Background(), client, SecretBundle{ClientID: "id", ClientSecret: "secret", RefreshToken: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.AccessExpires.After(time.Now()) {
+		t.Fatalf("AccessExpires = %v, want a future timestamp (no overflow)", got.AccessExpires)
+	}
+	if NeedsRefresh(got.AccessExpires, time.Now()) {
+		t.Fatal("a far-future expiry must not be considered in need of refresh")
+	}
+}
+
+func TestRefreshTreatsNegativeExpiresInAsExpired(t *testing.T) {
+	// A negative expires_in (a nonsensical but syntactically valid value) must
+	// not overflow into a far-future expiry that suppresses refresh; a negative
+	// lifetime means the token is already expired.
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh","expires_in":-9999999999}`)),
+		}, nil
+	})}
+	got, err := Refresh(context.Background(), client, SecretBundle{ClientID: "id", ClientSecret: "secret", RefreshToken: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccessExpires.After(time.Now().Add(time.Minute)) {
+		t.Fatalf("AccessExpires = %v, want an already-expired timestamp for a negative expires_in", got.AccessExpires)
+	}
+	if !NeedsRefresh(got.AccessExpires, time.Now()) {
+		t.Fatal("a negative-lifetime token must be considered in need of refresh")
+	}
+}
+
 func TestEncryptedFileStoreWritesVersionedArgon2Payload(t *testing.T) {
 	t.Setenv("WSECTL_SECRET_PASSPHRASE", "passphrase")
 	ref := SecretRef{Scheme: "encrypted-file", Name: t.TempDir() + "/secret.json"}
@@ -397,6 +513,29 @@ func TestEnvStoreSetDeleteFail(t *testing.T) {
 func TestAuthAdminHashDelegatesToWorksectionHash(t *testing.T) {
 	if got := AdminHash("get_users", map[string]string{"empty": "", "id": "1"}, "key"); got == "" || len(got) != 32 {
 		t.Fatalf("unexpected admin hash %q", got)
+	}
+}
+
+func TestExchangeCodeHonorsExplicitZeroExpiresIn(t *testing.T) {
+	// An initial token response with expires_in: 0 (or negative) is an
+	// already-expired token, not an unknown lifetime; it must set an expiry so
+	// the next call refreshes, mirroring the refresh path.
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"access","refresh_token":"refresh","expires_in":0}`)),
+		}, nil
+	})}
+	got, err := ExchangeCode(context.Background(), client, "id", "secret", "code", "https://localhost:33443/callback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccessExpires.IsZero() {
+		t.Fatal("explicit expires_in:0 on exchange must set an expiry, not be treated as unknown")
+	}
+	if !NeedsRefresh(got.AccessExpires, time.Now()) {
+		t.Fatal("a zero-lifetime token from exchange must be considered in need of refresh")
 	}
 }
 
