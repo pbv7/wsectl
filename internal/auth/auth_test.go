@@ -368,6 +368,29 @@ func TestRefreshClampsHugeExpiresIn(t *testing.T) {
 	}
 }
 
+func TestRefreshTreatsNegativeExpiresInAsExpired(t *testing.T) {
+	// A negative expires_in (a nonsensical but syntactically valid value) must
+	// not overflow into a far-future expiry that suppresses refresh; a negative
+	// lifetime means the token is already expired.
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh","expires_in":-9999999999}`)),
+		}, nil
+	})}
+	got, err := Refresh(context.Background(), client, SecretBundle{ClientID: "id", ClientSecret: "secret", RefreshToken: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccessExpires.After(time.Now().Add(time.Minute)) {
+		t.Fatalf("AccessExpires = %v, want an already-expired timestamp for a negative expires_in", got.AccessExpires)
+	}
+	if !NeedsRefresh(got.AccessExpires, time.Now()) {
+		t.Fatal("a negative-lifetime token must be considered in need of refresh")
+	}
+}
+
 func TestEncryptedFileStoreWritesVersionedArgon2Payload(t *testing.T) {
 	t.Setenv("WSECTL_SECRET_PASSPHRASE", "passphrase")
 	ref := SecretRef{Scheme: "encrypted-file", Name: t.TempDir() + "/secret.json"}
@@ -490,6 +513,29 @@ func TestEnvStoreSetDeleteFail(t *testing.T) {
 func TestAuthAdminHashDelegatesToWorksectionHash(t *testing.T) {
 	if got := AdminHash("get_users", map[string]string{"empty": "", "id": "1"}, "key"); got == "" || len(got) != 32 {
 		t.Fatalf("unexpected admin hash %q", got)
+	}
+}
+
+func TestExchangeCodeHonorsExplicitZeroExpiresIn(t *testing.T) {
+	// An initial token response with expires_in: 0 (or negative) is an
+	// already-expired token, not an unknown lifetime; it must set an expiry so
+	// the next call refreshes, mirroring the refresh path.
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"access","refresh_token":"refresh","expires_in":0}`)),
+		}, nil
+	})}
+	got, err := ExchangeCode(context.Background(), client, "id", "secret", "code", "https://localhost:33443/callback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccessExpires.IsZero() {
+		t.Fatal("explicit expires_in:0 on exchange must set an expiry, not be treated as unknown")
+	}
+	if !NeedsRefresh(got.AccessExpires, time.Now()) {
+		t.Fatal("a zero-lifetime token from exchange must be considered in need of refresh")
 	}
 }
 

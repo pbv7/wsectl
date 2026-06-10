@@ -131,7 +131,7 @@ func decodeRefreshBundle(resp *http.Response, b SecretBundle) (SecretBundle, err
 	var body struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    *int   `json:"expires_in"`
+		ExpiresIn    *int64 `json:"expires_in"`
 		AccountURL   string `json:"account_url"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -145,7 +145,7 @@ func decodeRefreshBundle(resp *http.Response, b SecretBundle) (SecretBundle, err
 	return applyRefreshBody(b, body.AccessToken, body.RefreshToken, body.AccountURL, body.ExpiresIn), nil
 }
 
-func applyRefreshBody(b SecretBundle, accessToken, refreshToken, accountURL string, expiresIn *int) SecretBundle {
+func applyRefreshBody(b SecretBundle, accessToken, refreshToken, accountURL string, expiresIn *int64) SecretBundle {
 	b.AccessToken = accessToken
 	if refreshToken != "" {
 		b.RefreshToken = refreshToken // a rotated token replaces the old one
@@ -153,17 +153,20 @@ func applyRefreshBody(b SecretBundle, accessToken, refreshToken, accountURL stri
 	if accountURL != "" {
 		b.AccountURL = accountURL
 	}
-	if expiresIn == nil {
-		// Omitted: unknown lifetime. Clear the timestamp so NeedsRefresh treats
-		// the token as non-expiring rather than refreshing on every call against
-		// a stale past timestamp.
-		b.AccessExpires = time.Time{}
-	} else {
-		// Present (including a zero lifetime): honor it. A zero or past value
-		// yields an already-expired timestamp, so the next call refreshes.
-		b.AccessExpires = time.Now().Add(expiresInDuration(*expiresIn))
-	}
+	b.AccessExpires = accessExpiry(expiresIn)
 	return b
+}
+
+// accessExpiry maps an OAuth expires_in value to an AccessExpires timestamp.
+// An omitted field (nil) means an unknown lifetime: a zero timestamp, which
+// NeedsRefresh treats as non-expiring. A present value — including zero or
+// negative — yields now+lifetime, so a zero/past value is already expired and
+// the next call refreshes.
+func accessExpiry(expiresIn *int64) time.Time {
+	if expiresIn == nil {
+		return time.Time{}
+	}
+	return time.Now().Add(expiresInDuration(*expiresIn))
 }
 
 // maxExpiresInSeconds is the largest expires_in that converts to a
@@ -171,10 +174,14 @@ func applyRefreshBody(b SecretBundle, accessToken, refreshToken, accountURL stri
 const maxExpiresInSeconds = math.MaxInt64 / int64(time.Second)
 
 // expiresInDuration converts an expires_in value (seconds) to a Duration,
-// clamping pathologically large values so the multiplication cannot overflow
-// into a negative (past) duration that would loop NeedsRefresh.
-func expiresInDuration(seconds int) time.Duration {
-	if int64(seconds) > maxExpiresInSeconds {
+// clamping both extremes so the multiplication cannot overflow time.Duration's
+// int64 nanoseconds. A negative lifetime is treated as zero (already expired);
+// a value beyond ~292 years is capped. Either way NeedsRefresh stays correct.
+func expiresInDuration(seconds int64) time.Duration {
+	if seconds < 0 {
+		return 0
+	}
+	if seconds > maxExpiresInSeconds {
 		return time.Duration(maxExpiresInSeconds) * time.Second
 	}
 	return time.Duration(seconds) * time.Second
@@ -211,7 +218,7 @@ func ExchangeCode(ctx context.Context, client *http.Client, clientID, clientSecr
 	var body struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
+		ExpiresIn    *int64 `json:"expires_in"`
 		AccountURL   string `json:"account_url"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -221,14 +228,12 @@ func ExchangeCode(ctx context.Context, client *http.Client, clientID, clientSecr
 		return SecretBundle{}, fmt.Errorf("oauth token response did not include tokens")
 	}
 	b := SecretBundle{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		AccessToken:  body.AccessToken,
-		RefreshToken: body.RefreshToken,
-		AccountURL:   body.AccountURL,
-	}
-	if body.ExpiresIn > 0 {
-		b.AccessExpires = time.Now().Add(expiresInDuration(body.ExpiresIn))
+		ClientID:      clientID,
+		ClientSecret:  clientSecret,
+		AccessToken:   body.AccessToken,
+		RefreshToken:  body.RefreshToken,
+		AccountURL:    body.AccountURL,
+		AccessExpires: accessExpiry(body.ExpiresIn),
 	}
 	return b, nil
 }
