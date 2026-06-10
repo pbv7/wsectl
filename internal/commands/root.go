@@ -193,12 +193,34 @@ func (s *state) client(ctx context.Context) (clientResult, error) {
 	if err != nil {
 		return clientResult{profileName: profileName, profile: p}, err
 	}
+	// Resolve the effective account URL once, then write it back onto the
+	// profile so the client, diagnostics, history, and output envelopes all
+	// agree on the host actually used.
+	p.AccountURL = resolveAccountURL(s.accountURL, os.Getenv("WSECTL_ACCOUNT_URL"), secret.AccountURL, p.AccountURL)
 	return clientResult{
 		client:          worksection.NewClient(nil, profileCredentials(p, secret), cfg.Timeout(), limiter),
 		profileName:     profileName,
 		profile:         p,
 		usedEnvFallback: secretInfo.usedEnvFallback,
 	}, nil
+}
+
+// resolveAccountURL applies the account-URL precedence ladder:
+//
+//	--account-url flag  >  WSECTL_ACCOUNT_URL env  >  credential URL  >  configured profile URL
+//
+// The flag and env are explicit overrides and outrank everything. With no
+// override, the credential's own URL wins: an OAuth exchange may return an
+// account_url that differs from the configured profile (Worksection treats
+// the response URL as the authorized account for subsequent requests), and
+// that stored value must not be discarded by the ordinary configured value.
+// The configured profile URL is the final fallback.
+//
+// configuredURL is passed last and is only consulted when no override and no
+// credential URL exist; passing the override-merged profile value here is
+// safe because the explicit flag/env arguments already take precedence.
+func resolveAccountURL(flagOverride, envOverride, credentialURL, configuredURL string) string {
+	return firstNonEmpty(flagOverride, envOverride, credentialURL, configuredURL)
 }
 
 func loadProfileSecret(ctx context.Context, p config.Profile) (profileSecret, error) {
@@ -263,8 +285,9 @@ func shouldRefreshSecret(p config.Profile, secret auth.SecretBundle) bool {
 }
 
 func profileCredentials(p config.Profile, secret auth.SecretBundle) worksection.Credentials {
-	accountURL := firstNonEmpty(secret.AccountURL, p.AccountURL)
-	creds := worksection.Credentials{Mode: worksection.AuthMode(firstNonEmpty(p.AuthType, "oauth2")), AccountURL: accountURL}
+	// p.AccountURL is already the effective URL resolved by resolveAccountURL
+	// in client(); profileCredentials only assembles the credential bundle.
+	creds := worksection.Credentials{Mode: worksection.AuthMode(firstNonEmpty(p.AuthType, "oauth2")), AccountURL: p.AccountURL}
 	if creds.Mode == worksection.AuthAdmin {
 		creds.AdminKey = firstNonEmpty(secret.AdminToken, os.Getenv("WSECTL_ADMIN_TOKEN"))
 	} else {
