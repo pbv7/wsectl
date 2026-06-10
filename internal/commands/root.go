@@ -147,26 +147,34 @@ func resolveOutputFlag(f *pflag.FlagSet, base string) string {
 	return out
 }
 
-// ResolveOutputAndConfig parses the global flags out of args exactly as the CLI
-// would and returns the selected output format (--output plus the boolean
-// shortcuts) and --config path. It is used to render a top-level error before
-// the command body has parsed anything. Parsing is delegated to pflag, so flag
-// terminators (--), boolean value forms (--json=false), value consumption
-// (--profile --json treats --json as the profile value), and last-occurrence
-// wins are all handled the same way as a real invocation. Unknown flags
-// (including the one a usage error is about) are ignored.
+// ResolveOutputAndConfig parses the output and config flags out of args exactly
+// as the CLI would and returns the selected output format (--output plus the
+// boolean shortcuts) and --config path. It is used to render a top-level error
+// before the command body has parsed anything.
 //
-// Only the global flags are registered, so a subcommand value flag whose value
-// looks like a global flag is not consumed; that residual edge is far narrower
-// than the surface a hand-rolled scanner exposed.
+// It resolves the target command with the real command tree and parses against
+// that command's complete flag set — global persistent flags plus the
+// subcommand's local flags. So pflag owns every parsing rule (the -- terminator,
+// boolean value forms like --json=false, value consumption for both global and
+// subcommand value flags such as --profile --json or --extra --json, and
+// last-occurrence wins), and the error path renders in the same format a real
+// invocation would. Unknown flags (including the one a usage error is about) are
+// ignored via the parse allowlist.
 func ResolveOutputAndConfig(args []string) (output, config string) {
-	var s state
+	root := NewRoot("", "", "")
+	target, remaining, err := root.Find(args)
+	if err != nil || target == nil {
+		target, remaining = root, args
+	}
 	fs := pflag.NewFlagSet("resolve", pflag.ContinueOnError)
 	fs.ParseErrorsAllowlist.UnknownFlags = true
 	fs.SetOutput(io.Discard)
-	registerGlobalFlags(fs, &s)
-	_ = fs.Parse(args)
-	return resolveOutputFlag(fs, s.format), s.configPath
+	fs.AddFlagSet(root.PersistentFlags()) // global flags (--output, --config, shortcuts)
+	fs.AddFlagSet(target.LocalFlags())    // subcommand flags so their values are consumed
+	_ = fs.Parse(remaining)
+	base, _ := fs.GetString("output")
+	config, _ = fs.GetString("config")
+	return resolveOutputFlag(fs, base), config
 }
 
 func (s *state) loadConfig(ctx context.Context) (config.Config, error) {

@@ -218,16 +218,22 @@ func TestConfigAfterTerminatorDoesNotAffectErrorFormat(t *testing.T) {
 	}
 }
 
-// A value-taking flag consumes the next token, so --profile --json means the
-// profile is "--json" and json is NOT selected; the resulting error must render
-// as human output, not a JSON envelope. End-to-end check of the pflag-backed
-// resolution.
+// A value-taking flag consumes the next token, so a shortcut-looking value is
+// not a selector; the resulting error must render as human output, not a JSON
+// envelope. Covers both a global value flag (--profile) and a subcommand value
+// flag (--extra), since the resolver parses against the target command's full
+// flag set. End-to-end check of the pflag-backed resolution.
 func TestValueFlagConsumesShortcutToken(t *testing.T) {
 	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 	t.Setenv("WSECTL_OUTPUT", "")
-	_, stderr, _ := runCapture(t, "me", "--profile", "--json")
-	if strings.Contains(stderr, `"status"`) {
-		t.Fatalf("--profile consumed --json as its value, so output must be human, got an envelope:\n%s", stderr)
+	for _, args := range [][]string{
+		{"me", "--profile", "--json"},
+		{"projects", "get", "--extra", "--json"},
+	} {
+		_, stderr, _ := runCapture(t, args...)
+		if strings.Contains(stderr, `"status"`) {
+			t.Fatalf("args %v: shortcut-looking value consumed by a value flag, output must be human, got an envelope:\n%s", args, stderr)
+		}
 	}
 }
 

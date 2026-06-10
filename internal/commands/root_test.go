@@ -763,6 +763,10 @@ func TestResolveOutputAndConfig(t *testing.T) {
 		// an output shortcut: --profile --json means profile="--json".
 		{"profile consumes json token", []string{"me", "--profile", "--json"}, "", ""},
 		{"output consumes value", []string{"me", "--output", "--json"}, "--json", ""},
+		// Subcommand value flags are resolved too: --extra on `projects get`
+		// consumes --json as its value, so no output is selected.
+		{"subcommand flag consumes json token", []string{"projects", "get", "--extra", "--json"}, "", ""},
+		{"subcommand flag then real shortcut", []string{"projects", "get", "--extra", "text", "--json"}, "json", ""},
 		// --config: last occurrence wins, value consumed.
 		{"config flag", []string{"me", "--config", "/a.toml"}, "", "/a.toml"},
 		{"config last wins", []string{"me", "--config", "/a.toml", "--config", "/c.toml"}, "", "/c.toml"},
