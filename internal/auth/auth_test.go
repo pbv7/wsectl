@@ -345,6 +345,29 @@ func TestRefreshHonorsExplicitZeroExpiresIn(t *testing.T) {
 	}
 }
 
+func TestRefreshClampsHugeExpiresIn(t *testing.T) {
+	// A pathologically large expires_in must not overflow time.Duration
+	// (int64 nanoseconds) into a negative/past timestamp, which would make
+	// NeedsRefresh always true and loop.
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh","expires_in":9999999999}`)),
+		}, nil
+	})}
+	got, err := Refresh(context.Background(), client, SecretBundle{ClientID: "id", ClientSecret: "secret", RefreshToken: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.AccessExpires.After(time.Now()) {
+		t.Fatalf("AccessExpires = %v, want a future timestamp (no overflow)", got.AccessExpires)
+	}
+	if NeedsRefresh(got.AccessExpires, time.Now()) {
+		t.Fatal("a far-future expiry must not be considered in need of refresh")
+	}
+}
+
 func TestEncryptedFileStoreWritesVersionedArgon2Payload(t *testing.T) {
 	t.Setenv("WSECTL_SECRET_PASSPHRASE", "passphrase")
 	ref := SecretRef{Scheme: "encrypted-file", Name: t.TempDir() + "/secret.json"}

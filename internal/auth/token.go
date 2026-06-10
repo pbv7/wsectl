@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -160,9 +161,23 @@ func applyRefreshBody(b SecretBundle, accessToken, refreshToken, accountURL stri
 	} else {
 		// Present (including a zero lifetime): honor it. A zero or past value
 		// yields an already-expired timestamp, so the next call refreshes.
-		b.AccessExpires = time.Now().Add(time.Duration(*expiresIn) * time.Second)
+		b.AccessExpires = time.Now().Add(expiresInDuration(*expiresIn))
 	}
 	return b
+}
+
+// maxExpiresInSeconds is the largest expires_in that converts to a
+// time.Duration without overflowing its int64 nanoseconds.
+const maxExpiresInSeconds = math.MaxInt64 / int64(time.Second)
+
+// expiresInDuration converts an expires_in value (seconds) to a Duration,
+// clamping pathologically large values so the multiplication cannot overflow
+// into a negative (past) duration that would loop NeedsRefresh.
+func expiresInDuration(seconds int) time.Duration {
+	if int64(seconds) > maxExpiresInSeconds {
+		return time.Duration(maxExpiresInSeconds) * time.Second
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // ExchangeCode exchanges a Worksection OAuth authorization code for access and
@@ -213,7 +228,7 @@ func ExchangeCode(ctx context.Context, client *http.Client, clientID, clientSecr
 		AccountURL:   body.AccountURL,
 	}
 	if body.ExpiresIn > 0 {
-		b.AccessExpires = time.Now().Add(time.Duration(body.ExpiresIn) * time.Second)
+		b.AccessExpires = time.Now().Add(expiresInDuration(body.ExpiresIn))
 	}
 	return b, nil
 }
