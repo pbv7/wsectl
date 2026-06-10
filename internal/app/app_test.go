@@ -30,55 +30,6 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestFlagOutputDetection(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-		want string
-	}{
-		{name: "json shortcut", args: []string{"me", "--json"}, want: "json"},
-		{name: "yaml shortcut", args: []string{"--yaml", "me"}, want: "yaml"},
-		{name: "ndjson shortcut", args: []string{"tasks", "all", "--ndjson"}, want: "ndjson"},
-		{name: "table shortcut", args: []string{"me", "--table"}, want: "table"},
-		{name: "raw shortcut", args: []string{"me", "--raw"}, want: "raw"},
-		{name: "output flag", args: []string{"--output", "json", "me"}, want: "json"},
-		{name: "output equals human", args: []string{"me", "--output=table"}, want: "table"},
-		// Precedence mirrors PersistentPreRun: shortcuts override --output, and
-		// the fixed order (json<yaml<table<ndjson<raw) decides between
-		// shortcuts — independent of argument position.
-		{name: "shortcut beats --output, order A", args: []string{"me", "--json", "--output", "table"}, want: "json"},
-		{name: "shortcut beats --output, order B", args: []string{"me", "--output", "table", "--json"}, want: "json"},
-		{name: "table beats json regardless of order A", args: []string{"me", "--json", "--table"}, want: "table"},
-		{name: "table beats json regardless of order B", args: []string{"me", "--table", "--json"}, want: "table"},
-		{name: "raw beats ndjson", args: []string{"me", "--ndjson", "--raw"}, want: "raw"},
-		// pflag boolean forms, matching the command layer's GetBool.
-		{name: "json equals true", args: []string{"me", "--json=true"}, want: "json"},
-		{name: "json equals 1", args: []string{"me", "--json=1"}, want: "json"},
-		{name: "json equals false is not set", args: []string{"me", "--json=false"}, want: ""},
-		{name: "json equals false then table", args: []string{"me", "--json=false", "--table"}, want: "table"},
-		// A later parsed value wins, including a false that clears an earlier
-		// true (matches Cobra's repeated-flag semantics).
-		{name: "json then json=false clears it", args: []string{"me", "--json", "--json=false"}, want: ""},
-		{name: "json=false then json sets it", args: []string{"me", "--json=false", "--json"}, want: "json"},
-		// Flags after the -- terminator are positional, not output selectors.
-		{name: "table after terminator ignored", args: []string{"me", "--", "foo", "--table"}, want: ""},
-		{name: "json before terminator honored", args: []string{"me", "--json", "--", "--table"}, want: "json"},
-		// --output consumes its value even when it looks like a flag: the
-		// consumed token is not re-read as a shortcut.
-		{name: "output value looking like json shortcut", args: []string{"me", "--output", "--json"}, want: "--json"},
-		{name: "output value looking like table shortcut", args: []string{"me", "--output", "--table"}, want: "--table"},
-		{name: "real shortcut after consumed output value", args: []string{"me", "--output", "--json", "--table"}, want: "table"},
-		{name: "no output flag", args: []string{"me"}, want: ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := flagOutput(tt.args); got != tt.want {
-				t.Fatalf("flagOutput(%v) = %q, want %q", tt.args, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestAppMachineErrorAndExitCodes(t *testing.T) {
 	plain := errors.New("bad flags")
 	rendered := appMachineError(plain)
@@ -154,6 +105,28 @@ func TestUsageErrorHonorsConfigDefaultFormat(t *testing.T) {
 	}
 	if !strings.Contains(stderr, `"status": "error"`) || !strings.Contains(stderr, `"code": "usage"`) {
 		t.Fatalf("config default json format not honored for usage error; got:\n%s", stderr)
+	}
+}
+
+// WSECTL_OUTPUT must still select the error format when the config file is
+// unreadable (config.Load returns before applying env), matching the
+// command-body path which falls back to the env setting. Otherwise top-level
+// usage errors and command-body errors disagree under a malformed config.
+func TestUsageErrorHonorsEnvWhenConfigUnreadable(t *testing.T) {
+	dir := t.TempDir()
+	badCfg := filepath.Join(dir, "bad.toml")
+	if err := os.WriteFile(badCfg, []byte("not = [valid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WSECTL_CONFIG", badCfg)
+	t.Setenv("WSECTL_OUTPUT", "json")
+
+	_, stderr, exit := runCapture(t, "projects", "list", "--badflag")
+	if exit != 2 {
+		t.Fatalf("exit = %d, want 2", exit)
+	}
+	if !strings.Contains(stderr, `"code": "usage"`) {
+		t.Fatalf("WSECTL_OUTPUT=json must select an envelope even when config is unreadable; got:\n%s", stderr)
 	}
 }
 
@@ -245,27 +218,16 @@ func TestConfigAfterTerminatorDoesNotAffectErrorFormat(t *testing.T) {
 	}
 }
 
-func TestConfigPathFromArgs(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-		want string
-	}{
-		{"flag with value", []string{"me", "--config", "/a.toml"}, "/a.toml"},
-		{"equals form", []string{"me", "--config=/b.toml"}, "/b.toml"},
-		{"last occurrence wins", []string{"me", "--config", "/a.toml", "--config", "/c.toml"}, "/c.toml"},
-		{"consumes value that looks like a flag", []string{"me", "--config", "--config"}, "--config"},
-		// A --config after the terminator is a positional argument, not a flag,
-		// and must not influence config loading for error rendering.
-		{"after terminator ignored", []string{"me", "--", "--config", "/c.toml"}, ""},
-		{"none", []string{"me"}, ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := configPathFromArgs(tt.args); got != tt.want {
-				t.Fatalf("configPathFromArgs(%v) = %q, want %q", tt.args, got, tt.want)
-			}
-		})
+// A value-taking flag consumes the next token, so --profile --json means the
+// profile is "--json" and json is NOT selected; the resulting error must render
+// as human output, not a JSON envelope. End-to-end check of the pflag-backed
+// resolution.
+func TestValueFlagConsumesShortcutToken(t *testing.T) {
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_OUTPUT", "")
+	_, stderr, _ := runCapture(t, "me", "--profile", "--json")
+	if strings.Contains(stderr, `"status"`) {
+		t.Fatalf("--profile consumed --json as its value, so output must be human, got an envelope:\n%s", stderr)
 	}
 }
 

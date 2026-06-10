@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
-	"strings"
 
 	"github.com/pbv7/wsectl/internal/commands"
 	"github.com/pbv7/wsectl/internal/config"
@@ -63,49 +61,32 @@ func RunWithIO(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	return classified
 }
 
-// errorFormat resolves the format used to render a top-level error using the
-// same precedence as normal output: an explicit output flag, then
-// WSECTL_OUTPUT, then the config file's default. It returns the machine format
-// to render an envelope, or "" for human (plain-text) rendering — including
-// when an explicit human selector (--table/--raw/--output table) is chosen
-// over a machine config default.
+// errorFormat resolves the format used to render a top-level error, mirroring
+// the command layer's effectiveFormat: the output flags first, then the config
+// default (which config.Load resolves from WSECTL_OUTPUT and the config file),
+// then WSECTL_OUTPUT directly as a fallback. The env fallback matters when the
+// config file is unreadable — config.Load returns before applying env in that
+// case, but the command body still honors WSECTL_OUTPUT, so the error path must
+// too. Returns the machine format to render an envelope, or "" for human
+// (plain-text) rendering — including when an explicit human selector
+// (--table/--raw/--output table) is chosen over a machine config default.
+//
+// Flag parsing is delegated to commands.ResolveOutputAndConfig, which uses the
+// real global flag set so it matches a live invocation exactly.
 func errorFormat(ctx context.Context, args []string) string {
-	format := flagOutput(args)
+	format, configPath := commands.ResolveOutputAndConfig(args)
 	if format == "" {
-		format = os.Getenv("WSECTL_OUTPUT")
-	}
-	if format == "" {
-		if cfg, err := config.Load(ctx, config.Overrides{ConfigPath: configPathFromArgs(args)}); err == nil {
+		if cfg, err := config.Load(ctx, config.Overrides{ConfigPath: configPath}); err == nil {
 			format = cfg.Defaults.Output
 		}
+	}
+	if format == "" {
+		format = os.Getenv("WSECTL_OUTPUT")
 	}
 	if isMachineFormat(format) {
 		return format
 	}
 	return ""
-}
-
-func configPathFromArgs(args []string) string {
-	out := ""
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
-			break // positionals after the terminator are not flags
-		}
-		if a == "--config" {
-			// Consume the next token as the value (skip it), and let a later
-			// --config win, matching pflag's last-occurrence semantics.
-			if i+1 < len(args) {
-				out = args[i+1]
-				i++
-			}
-			continue
-		}
-		if v, ok := strings.CutPrefix(a, "--config="); ok {
-			out = v
-		}
-	}
-	return out
 }
 
 type appRenderedError struct {
@@ -142,57 +123,6 @@ func classifyTopLevelError(err error, bodyEntered bool) error {
 		return err
 	}
 	return appMachineError(err)
-}
-
-// flagOutput returns the output format selected by CLI flags, mirroring the
-// command layer's resolution in PersistentPreRun (internal/commands/root.go):
-// --output VALUE is the base, then the --json/--yaml/--table/--ndjson/--raw
-// shortcuts override it in that fixed order — so the precedence is by flag,
-// not by argument position (e.g. --json always beats --output table, and
-// --table always beats --json). Returns "" when no output flag is present.
-// errorFormat layers env and config defaults beneath this.
-func flagOutput(args []string) string {
-	// Fixed order matches PersistentPreRun: later entries win.
-	shortcuts := []string{"json", "yaml", "table", "ndjson", "raw"}
-	out := ""
-	set := map[string]bool{}
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if arg == "--" {
-			break // a standalone terminator: everything after is positional
-		}
-		if arg == "--output" {
-			// --output consumes the next token as its value, even if that
-			// token looks like another flag (e.g. --output --json); skip it so
-			// it is not re-read as a shortcut.
-			if i+1 < len(args) {
-				out = args[i+1]
-				i++
-			}
-			continue
-		}
-		if value, ok := strings.CutPrefix(arg, "--output="); ok {
-			out = value
-			continue
-		}
-		for _, name := range shortcuts {
-			switch {
-			case arg == "--"+name:
-				set[name] = true // bare boolean flag is true
-			case strings.HasPrefix(arg, "--"+name+"="):
-				// pflag accepts --json=true/false/1/0; a malformed value is
-				// left for the command layer to reject, treated as set here.
-				b, err := strconv.ParseBool(strings.TrimPrefix(arg, "--"+name+"="))
-				set[name] = err != nil || b
-			}
-		}
-	}
-	for _, name := range shortcuts {
-		if set[name] {
-			out = name
-		}
-	}
-	return out
 }
 
 func isMachineFormat(format string) bool {

@@ -14,6 +14,7 @@ import (
 	"github.com/pbv7/wsectl/internal/output"
 	"github.com/pbv7/wsectl/internal/worksection"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 type state struct {
@@ -91,8 +92,27 @@ func NewRoot(version, commit, date string) *cobra.Command {
 	return root
 }
 
+// outputShortcuts maps each boolean output shortcut to the format it selects,
+// in the precedence order applied by PersistentPreRun (later entries win).
+var outputShortcuts = []struct{ flag, format string }{
+	{"json", "json"},
+	{"yaml", "yaml"},
+	{"table", "table"},
+	{"ndjson", "ndjson"},
+	{"raw", "raw"},
+}
+
 func addGlobalFlags(cmd *cobra.Command, s *state) {
-	f := cmd.PersistentFlags()
+	registerGlobalFlags(cmd.PersistentFlags(), s)
+	cmd.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
+		s.format = resolveOutputFlag(cmd.Flags(), s.format)
+	}
+}
+
+// registerGlobalFlags binds the global persistent flags onto f. It is shared by
+// the live command tree and ResolveOutputAndConfig so both parse exactly the
+// same flag set.
+func registerGlobalFlags(f *pflag.FlagSet, s *state) {
 	f.StringVar(&s.profile, "profile", "", "Profile name")
 	f.StringVar(&s.configPath, "config", "", "Config file path")
 	f.StringVar(&s.accountURL, "account-url", "", "Worksection account URL")
@@ -113,23 +133,40 @@ func addGlobalFlags(cmd *cobra.Command, s *state) {
 	f.BoolVar(&s.schema, "schema", false, "Print the static action response contract without calling Worksection")
 	f.IntVar(&s.limit, "limit", 0, "Client-side maximum number of array records to output")
 	f.BoolVar(&s.failOnTruncated, "fail-on-truncated", false, "Exit 8 if metadata indicates possible truncation")
-	cmd.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
-		if v, _ := cmd.Flags().GetBool("json"); v {
-			s.format = "json"
-		}
-		if v, _ := cmd.Flags().GetBool("yaml"); v {
-			s.format = "yaml"
-		}
-		if v, _ := cmd.Flags().GetBool("table"); v {
-			s.format = "table"
-		}
-		if v, _ := cmd.Flags().GetBool("ndjson"); v {
-			s.format = "ndjson"
-		}
-		if v, _ := cmd.Flags().GetBool("raw"); v {
-			s.format = "raw"
+}
+
+// resolveOutputFlag applies the boolean output shortcuts over a base --output
+// value, in fixed order so the precedence is by flag, not argument position.
+func resolveOutputFlag(f *pflag.FlagSet, base string) string {
+	out := base
+	for _, sc := range outputShortcuts {
+		if v, _ := f.GetBool(sc.flag); v {
+			out = sc.format
 		}
 	}
+	return out
+}
+
+// ResolveOutputAndConfig parses the global flags out of args exactly as the CLI
+// would and returns the selected output format (--output plus the boolean
+// shortcuts) and --config path. It is used to render a top-level error before
+// the command body has parsed anything. Parsing is delegated to pflag, so flag
+// terminators (--), boolean value forms (--json=false), value consumption
+// (--profile --json treats --json as the profile value), and last-occurrence
+// wins are all handled the same way as a real invocation. Unknown flags
+// (including the one a usage error is about) are ignored.
+//
+// Only the global flags are registered, so a subcommand value flag whose value
+// looks like a global flag is not consumed; that residual edge is far narrower
+// than the surface a hand-rolled scanner exposed.
+func ResolveOutputAndConfig(args []string) (output, config string) {
+	var s state
+	fs := pflag.NewFlagSet("resolve", pflag.ContinueOnError)
+	fs.ParseErrorsAllowlist.UnknownFlags = true
+	fs.SetOutput(io.Discard)
+	registerGlobalFlags(fs, &s)
+	_ = fs.Parse(args)
+	return resolveOutputFlag(fs, s.format), s.configPath
 }
 
 func (s *state) loadConfig(ctx context.Context) (config.Config, error) {
