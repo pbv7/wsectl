@@ -322,6 +322,29 @@ func TestRefreshClearsExpiryWhenExpiresInOmitted(t *testing.T) {
 	}
 }
 
+func TestRefreshHonorsExplicitZeroExpiresIn(t *testing.T) {
+	// expires_in: 0 is a present (zero-lifetime) value, distinct from an
+	// omitted field. It must set an already-expired timestamp so the next
+	// command refreshes, not be treated as unknown/non-expiring.
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh","expires_in":0}`)),
+		}, nil
+	})}
+	got, err := Refresh(context.Background(), client, SecretBundle{ClientID: "id", ClientSecret: "secret", RefreshToken: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccessExpires.IsZero() {
+		t.Fatal("explicit expires_in:0 must set an expiry, not be treated as unknown")
+	}
+	if !NeedsRefresh(got.AccessExpires, time.Now()) {
+		t.Fatal("a zero-lifetime token must be considered in need of refresh")
+	}
+}
+
 func TestEncryptedFileStoreWritesVersionedArgon2Payload(t *testing.T) {
 	t.Setenv("WSECTL_SECRET_PASSPHRASE", "passphrase")
 	ref := SecretRef{Scheme: "encrypted-file", Name: t.TempDir() + "/secret.json"}

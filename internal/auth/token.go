@@ -130,7 +130,7 @@ func decodeRefreshBundle(resp *http.Response, b SecretBundle) (SecretBundle, err
 	var body struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
+		ExpiresIn    *int   `json:"expires_in"`
 		AccountURL   string `json:"account_url"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -144,7 +144,7 @@ func decodeRefreshBundle(resp *http.Response, b SecretBundle) (SecretBundle, err
 	return applyRefreshBody(b, body.AccessToken, body.RefreshToken, body.AccountURL, body.ExpiresIn), nil
 }
 
-func applyRefreshBody(b SecretBundle, accessToken, refreshToken, accountURL string, expiresIn int) SecretBundle {
+func applyRefreshBody(b SecretBundle, accessToken, refreshToken, accountURL string, expiresIn *int) SecretBundle {
 	b.AccessToken = accessToken
 	if refreshToken != "" {
 		b.RefreshToken = refreshToken // a rotated token replaces the old one
@@ -152,13 +152,15 @@ func applyRefreshBody(b SecretBundle, accessToken, refreshToken, accountURL stri
 	if accountURL != "" {
 		b.AccountURL = accountURL
 	}
-	if expiresIn > 0 {
-		b.AccessExpires = time.Now().Add(time.Duration(expiresIn) * time.Second)
-	} else {
-		// Unknown expiry: clear it so NeedsRefresh treats the token as
-		// non-expiring instead of refreshing on every call against a stale
-		// past timestamp.
+	if expiresIn == nil {
+		// Omitted: unknown lifetime. Clear the timestamp so NeedsRefresh treats
+		// the token as non-expiring rather than refreshing on every call against
+		// a stale past timestamp.
 		b.AccessExpires = time.Time{}
+	} else {
+		// Present (including a zero lifetime): honor it. A zero or past value
+		// yields an already-expired timestamp, so the next call refreshes.
+		b.AccessExpires = time.Now().Add(time.Duration(*expiresIn) * time.Second)
 	}
 	return b
 }
