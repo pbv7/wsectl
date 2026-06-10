@@ -502,6 +502,7 @@ func wrapCommandErrors(root *cobra.Command, s *state) {
 		if cmd.RunE != nil {
 			original := cmd.RunE
 			cmd.RunE = func(cmd *cobra.Command, args []string) error {
+				markBodyEntered(cmd)
 				started := time.Now()
 				s.beginHistoryRun()
 				err := original(cmd, args)
@@ -519,6 +520,25 @@ func wrapCommandErrors(root *cobra.Command, s *state) {
 		}
 	}
 	walk(root)
+}
+
+// markBodyEntered records on the root that a command body (RunE) began
+// executing, so the top-level error classifier can distinguish a pre-RunE
+// cobra usage/parse error from an in-body failure.
+func markBodyEntered(cmd *cobra.Command) {
+	root := cmd.Root()
+	if root.Annotations == nil {
+		root.Annotations = map[string]string{}
+	}
+	root.Annotations[annotationBodyEntered] = "1"
+}
+
+// EnteredBody reports whether a command body executed during the most recent
+// Execute on root. When false, an error returned by Execute came from cobra's
+// flag/argument parsing or command resolution and should be classified as a
+// usage error.
+func EnteredBody(root *cobra.Command) bool {
+	return root.Annotations[annotationBodyEntered] == "1"
 }
 
 type renderedError struct{ err error }
