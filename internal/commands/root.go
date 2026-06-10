@@ -14,6 +14,7 @@ import (
 	"github.com/pbv7/wsectl/internal/output"
 	"github.com/pbv7/wsectl/internal/worksection"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 type state struct {
@@ -91,8 +92,27 @@ func NewRoot(version, commit, date string) *cobra.Command {
 	return root
 }
 
+// outputShortcuts maps each boolean output shortcut to the format it selects,
+// in the precedence order applied by PersistentPreRun (later entries win).
+var outputShortcuts = []struct{ flag, format string }{
+	{"json", "json"},
+	{"yaml", "yaml"},
+	{"table", "table"},
+	{"ndjson", "ndjson"},
+	{"raw", "raw"},
+}
+
 func addGlobalFlags(cmd *cobra.Command, s *state) {
-	f := cmd.PersistentFlags()
+	registerGlobalFlags(cmd.PersistentFlags(), s)
+	cmd.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
+		s.format = resolveOutputFlag(cmd.Flags(), s.format)
+	}
+}
+
+// registerGlobalFlags binds the global persistent flags onto f. It is shared by
+// the live command tree and ResolveOutputAndConfig so both parse exactly the
+// same flag set.
+func registerGlobalFlags(f *pflag.FlagSet, s *state) {
 	f.StringVar(&s.profile, "profile", "", "Profile name")
 	f.StringVar(&s.configPath, "config", "", "Config file path")
 	f.StringVar(&s.accountURL, "account-url", "", "Worksection account URL")
@@ -113,23 +133,48 @@ func addGlobalFlags(cmd *cobra.Command, s *state) {
 	f.BoolVar(&s.schema, "schema", false, "Print the static action response contract without calling Worksection")
 	f.IntVar(&s.limit, "limit", 0, "Client-side maximum number of array records to output")
 	f.BoolVar(&s.failOnTruncated, "fail-on-truncated", false, "Exit 8 if metadata indicates possible truncation")
-	cmd.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
-		if v, _ := cmd.Flags().GetBool("json"); v {
-			s.format = "json"
-		}
-		if v, _ := cmd.Flags().GetBool("yaml"); v {
-			s.format = "yaml"
-		}
-		if v, _ := cmd.Flags().GetBool("table"); v {
-			s.format = "table"
-		}
-		if v, _ := cmd.Flags().GetBool("ndjson"); v {
-			s.format = "ndjson"
-		}
-		if v, _ := cmd.Flags().GetBool("raw"); v {
-			s.format = "raw"
+}
+
+// resolveOutputFlag applies the boolean output shortcuts over a base --output
+// value, in fixed order so the precedence is by flag, not argument position.
+func resolveOutputFlag(f *pflag.FlagSet, base string) string {
+	out := base
+	for _, sc := range outputShortcuts {
+		if v, _ := f.GetBool(sc.flag); v {
+			out = sc.format
 		}
 	}
+	return out
+}
+
+// ResolveOutputAndConfig parses the output and config flags out of args exactly
+// as the CLI would and returns the selected output format (--output plus the
+// boolean shortcuts) and --config path. It is used to render a top-level error
+// before the command body has parsed anything.
+//
+// It resolves the target command with the real command tree and parses against
+// that command's complete flag set — global persistent flags plus the
+// subcommand's local flags. So pflag owns every parsing rule (the -- terminator,
+// boolean value forms like --json=false, value consumption for both global and
+// subcommand value flags such as --profile --json or --extra --json, and
+// last-occurrence wins), and the error path renders in the same format a real
+// invocation would. Unknown flags (including the one a usage error is about) are
+// ignored via the parse allowlist.
+func ResolveOutputAndConfig(args []string) (output, config string) {
+	root := NewRoot("", "", "")
+	target, remaining, err := root.Find(args)
+	if err != nil || target == nil {
+		target, remaining = root, args
+	}
+	fs := pflag.NewFlagSet("resolve", pflag.ContinueOnError)
+	fs.ParseErrorsAllowlist.UnknownFlags = true
+	fs.SetOutput(io.Discard)
+	fs.AddFlagSet(root.PersistentFlags()) // global flags (--output, --config, shortcuts)
+	fs.AddFlagSet(target.LocalFlags())    // subcommand flags so their values are consumed
+	_ = fs.Parse(remaining)
+	base, _ := fs.GetString("output")
+	config, _ = fs.GetString("config")
+	return resolveOutputFlag(fs, base), config
 }
 
 func (s *state) loadConfig(ctx context.Context) (config.Config, error) {
@@ -313,16 +358,16 @@ func (s *state) runActionWithOptions(cmd *cobra.Command, action string, params m
 		return s.writeActionSchema(cmd, action)
 	}
 	if err := worksection.ValidateAction(action, params, allowUnknown); err != nil {
-		return writeFailure(cmd.OutOrStderr(), s, action, "", err)
+		return writeFailure(cmd.ErrOrStderr(), s, action, "", err)
 	}
 	clientInfo, err := s.client(cmd.Context())
 	if err != nil {
-		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, err)
+		return writeFailure(cmd.ErrOrStderr(), s, action, clientInfo.profileName, err)
 	}
 	s.noteHistoryClient(clientInfo)
 	raw, err := s.callActionRaw(cmd, clientInfo, action, params)
 	if err != nil {
-		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, err)
+		return writeFailure(cmd.ErrOrStderr(), s, action, clientInfo.profileName, err)
 	}
 	if s.format == "raw" {
 		return s.writeRawActionResult(cmd, action, raw)
@@ -395,7 +440,7 @@ func (s *state) writeParsedActionResult(cmd *cobra.Command, action string, clien
 		return err
 	}
 	if resp.Status != "" && resp.Status != "ok" {
-		return writeFailure(cmd.OutOrStderr(), s, action, clientInfo.profileName, worksectionAPIError(action, resp))
+		return writeFailure(cmd.ErrOrStderr(), s, action, clientInfo.profileName, worksectionAPIError(action, resp))
 	}
 	env, opts, err := s.actionOutput(action, clientInfo, resp, transform)
 	if err != nil {
@@ -502,6 +547,7 @@ func wrapCommandErrors(root *cobra.Command, s *state) {
 		if cmd.RunE != nil {
 			original := cmd.RunE
 			cmd.RunE = func(cmd *cobra.Command, args []string) error {
+				markBodyEntered(cmd)
 				started := time.Now()
 				s.beginHistoryRun()
 				err := original(cmd, args)
@@ -511,7 +557,7 @@ func wrapCommandErrors(root *cobra.Command, s *state) {
 				if err == nil || isRendered(err) {
 					return err
 				}
-				return writeFailure(cmd.OutOrStderr(), s, cmd.CommandPath(), "", err)
+				return writeFailure(cmd.ErrOrStderr(), s, cmd.CommandPath(), "", err)
 			}
 		}
 		for _, child := range cmd.Commands() {
@@ -519,6 +565,25 @@ func wrapCommandErrors(root *cobra.Command, s *state) {
 		}
 	}
 	walk(root)
+}
+
+// markBodyEntered records on the root that a command body (RunE) began
+// executing, so the top-level error classifier can distinguish a pre-RunE
+// cobra usage/parse error from an in-body failure.
+func markBodyEntered(cmd *cobra.Command) {
+	root := cmd.Root()
+	if root.Annotations == nil {
+		root.Annotations = map[string]string{}
+	}
+	root.Annotations[annotationBodyEntered] = "1"
+}
+
+// EnteredBody reports whether a command body executed during the most recent
+// Execute on root. When false, an error returned by Execute came from cobra's
+// flag/argument parsing or command resolution and should be classified as a
+// usage error.
+func EnteredBody(root *cobra.Command) bool {
+	return root.Annotations[annotationBodyEntered] == "1"
 }
 
 type renderedError struct{ err error }

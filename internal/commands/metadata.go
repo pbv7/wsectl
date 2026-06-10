@@ -18,6 +18,7 @@ const (
 	annotationReadOnly    = "wsectl.read_only"
 	annotationAuth        = "wsectl.auth_required"
 	annotationHistorySkip = "wsectl.history.skip"
+	annotationBodyEntered = "wsectl.body_entered"
 )
 
 type commandMetadata struct {

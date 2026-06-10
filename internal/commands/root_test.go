@@ -734,6 +734,56 @@ func TestTableUsesActionCuratedColumns(t *testing.T) {
 	}
 }
 
+func TestResolveOutputAndConfig(t *testing.T) {
+	// Parsing is delegated to pflag, so this pins that the real flag set
+	// handles the cases a hand-rolled scanner kept getting wrong.
+	tests := []struct {
+		name       string
+		args       []string
+		wantOutput string
+		wantConfig string
+	}{
+		{"json shortcut", []string{"me", "--json"}, "json", ""},
+		{"output flag", []string{"--output", "json", "me"}, "json", ""},
+		{"output equals human", []string{"me", "--output=table"}, "table", ""},
+		// Shortcuts override --output; fixed order decides, not arg position.
+		{"shortcut beats --output A", []string{"me", "--json", "--output", "table"}, "json", ""},
+		{"shortcut beats --output B", []string{"me", "--output", "table", "--json"}, "json", ""},
+		{"table beats json A", []string{"me", "--json", "--table"}, "table", ""},
+		{"table beats json B", []string{"me", "--table", "--json"}, "table", ""},
+		// pflag boolean value forms and false-clear.
+		{"json equals true", []string{"me", "--json=true"}, "json", ""},
+		{"json equals false unset", []string{"me", "--json=false"}, "", ""},
+		{"json then json=false clears", []string{"me", "--json", "--json=false"}, "", ""},
+		{"json=false then json sets", []string{"me", "--json=false", "--json"}, "json", ""},
+		// -- terminator: later tokens are positional.
+		{"flag after terminator ignored", []string{"me", "--", "foo", "--table"}, "", ""},
+		{"flag before terminator honored", []string{"me", "--json", "--", "--table"}, "json", ""},
+		// A value-taking flag consumes the next token, even one that looks like
+		// an output shortcut: --profile --json means profile="--json".
+		{"profile consumes json token", []string{"me", "--profile", "--json"}, "", ""},
+		{"output consumes value", []string{"me", "--output", "--json"}, "--json", ""},
+		// Subcommand value flags are resolved too: --extra on `projects get`
+		// consumes --json as its value, so no output is selected.
+		{"subcommand flag consumes json token", []string{"projects", "get", "--extra", "--json"}, "", ""},
+		{"subcommand flag then real shortcut", []string{"projects", "get", "--extra", "text", "--json"}, "json", ""},
+		// --config: last occurrence wins, value consumed.
+		{"config flag", []string{"me", "--config", "/a.toml"}, "", "/a.toml"},
+		{"config last wins", []string{"me", "--config", "/a.toml", "--config", "/c.toml"}, "", "/c.toml"},
+		{"config after terminator ignored", []string{"me", "--", "--config", "/c.toml"}, "", ""},
+		{"none", []string{"me"}, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotOut, gotCfg := ResolveOutputAndConfig(tt.args)
+			if gotOut != tt.wantOutput || gotCfg != tt.wantConfig {
+				t.Fatalf("ResolveOutputAndConfig(%v) = (%q, %q), want (%q, %q)",
+					tt.args, gotOut, gotCfg, tt.wantOutput, tt.wantConfig)
+			}
+		})
+	}
+}
+
 func TestResolveAccountURL(t *testing.T) {
 	// Precedence ladder: flag > env > credential URL > configured profile URL.
 	const (
