@@ -227,7 +227,7 @@ type profileSecret struct {
 	usedEnvFallback bool
 }
 
-func (s *state) client(ctx context.Context) (clientResult, error) {
+func (s *state) client(ctx context.Context, warn func(format string, args ...any)) (clientResult, error) {
 	cfg, err := s.loadConfig(ctx)
 	if err != nil {
 		return clientResult{}, err
@@ -240,7 +240,7 @@ func (s *state) client(ctx context.Context) (clientResult, error) {
 	if err != nil {
 		return clientResult{profileName: profileName, profile: p}, err
 	}
-	secret, err := refreshProfileSecret(ctx, cfg, p, secretInfo)
+	secret, err := refreshProfileSecret(ctx, cfg, p, secretInfo, warn)
 	if err != nil {
 		return clientResult{profileName: profileName, profile: p}, err
 	}
@@ -252,12 +252,49 @@ func (s *state) client(ctx context.Context) (clientResult, error) {
 	// profile so the client, diagnostics, history, and output envelopes all
 	// agree on the host actually used.
 	p.AccountURL = resolveAccountURL(s.accountURL, os.Getenv("WSECTL_ACCOUNT_URL"), secret.AccountURL, p.AccountURL)
+	wsClient := worksection.NewClient(nil, profileCredentials(p, secret), cfg.Timeout(), limiter)
+	if canReactiveRefreshSecret(p, secret) {
+		// Reactive refresh covers what the proactive path cannot: tokens
+		// with unknown expiry and env-supplied credentials. The client only
+		// asks for a new bearer; refresh and persistence stay here.
+		wsClient.SetTokenRefresher(func(ctx context.Context) (string, error) {
+			refreshed, err := refreshSecretFunc(ctx, auth.HTTPClientWithTimeout(cfg.Timeout()), secret)
+			if err != nil {
+				// The command surfaces the original 401; without this the
+				// reason automatic recovery failed would vanish entirely.
+				// auth.Refresh redacts token material from its errors.
+				warn("reactive OAuth token refresh failed: %v", err)
+				return "", err
+			}
+			persistRefreshedSecret(ctx, secretInfo, refreshed, warn)
+			secret = refreshed
+			return refreshed.AccessToken, nil
+		})
+	}
 	return clientResult{
-		client:          worksection.NewClient(nil, profileCredentials(p, secret), cfg.Timeout(), limiter),
+		client:          wsClient,
 		profileName:     profileName,
 		profile:         p,
 		usedEnvFallback: secretInfo.usedEnvFallback,
 	}, nil
+}
+
+// canReactiveRefreshSecret reports whether a 401 could be recovered for this
+// credential: an OAuth profile carrying the full refresh material.
+func canReactiveRefreshSecret(p config.Profile, secret auth.SecretBundle) bool {
+	return firstNonEmpty(p.AuthType, "oauth2") == "oauth2" &&
+		secret.RefreshToken != "" && secret.ClientID != "" && secret.ClientSecret != ""
+}
+
+// warnSink returns the sink for operational warnings: stderr only, prefixed,
+// silenced by --quiet. Data output on stdout is never touched.
+func (s *state) warnSink(cmd *cobra.Command) func(format string, args ...any) {
+	return func(format string, args ...any) {
+		if s.quiet {
+			return
+		}
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: "+format+"\n", args...)
+	}
 }
 
 // resolveAccountURL applies the account-URL precedence ladder:
@@ -318,19 +355,43 @@ func envFallbackSecret(ctx context.Context, authType string) (auth.SecretBundle,
 	return envSecret, true
 }
 
-func refreshProfileSecret(ctx context.Context, cfg config.Config, p config.Profile, secretInfo profileSecret) (auth.SecretBundle, error) {
+// refreshSecretFunc is the OAuth refresh implementation shared by the
+// proactive and reactive paths. Package-level so tests can stub it:
+// auth.RefreshURL is a hardcoded const and cannot point at a test server.
+var refreshSecretFunc = auth.Refresh
+
+func refreshProfileSecret(ctx context.Context, cfg config.Config, p config.Profile, secretInfo profileSecret, warn func(format string, args ...any)) (auth.SecretBundle, error) {
 	secret := secretInfo.secret
 	if !shouldRefreshSecret(p, secret) {
 		return secret, nil
 	}
-	refreshed, err := auth.Refresh(ctx, auth.HTTPClientWithTimeout(cfg.Timeout()), secret)
+	refreshed, err := refreshSecretFunc(ctx, auth.HTTPClientWithTimeout(cfg.Timeout()), secret)
 	if err != nil {
 		return secret, &worksection.Error{Code: worksection.CodeAuth, Message: err.Error()}
 	}
-	if err := secretInfo.store.Set(ctx, secretInfo.ref, refreshed); err != nil {
-		return secret, &worksection.Error{Code: worksection.CodeAuth, Message: "refreshed OAuth token could not be persisted: " + err.Error()}
-	}
+	persistRefreshedSecret(ctx, secretInfo, refreshed, warn)
 	return refreshed, nil
+}
+
+// persistRefreshedSecret stores a refreshed OAuth bundle. The single persist
+// policy for both refresh paths: a failure is non-fatal because the refreshed
+// token is valid for this invocation — a writable store gets a warning, the
+// read-only env store is silent since not persisting is its designed behavior.
+func persistRefreshedSecret(ctx context.Context, secretInfo profileSecret, refreshed auth.SecretBundle, warn func(format string, args ...any)) {
+	if _, readOnly := secretInfo.store.(auth.EnvStore); readOnly {
+		return
+	}
+	// A successful refresh may have rotated the old refresh token away
+	// server-side; losing the new bundle to a cancelled command context
+	// would lock the user out. Detach the write from cancellation, but keep
+	// it bounded so a hanging store cannot block the process forever. The
+	// bound is generous because a keyring backend may legitimately wait on
+	// an interactive OS prompt.
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	if err := secretInfo.store.Set(writeCtx, secretInfo.ref, refreshed); err != nil {
+		warn("refreshed OAuth token could not be persisted: %v; continuing with the in-memory token for this run", err)
+	}
 }
 
 func shouldRefreshSecret(p config.Profile, secret auth.SecretBundle) bool {
@@ -370,7 +431,7 @@ func (s *state) runActionWithOptions(cmd *cobra.Command, action string, params m
 	if err := worksection.ValidateAction(action, params, allowUnknown); err != nil {
 		return writeFailure(cmd.ErrOrStderr(), s, action, "", err)
 	}
-	clientInfo, err := s.client(cmd.Context())
+	clientInfo, err := s.client(cmd.Context(), s.warnSink(cmd))
 	if err != nil {
 		return writeFailure(cmd.ErrOrStderr(), s, action, clientInfo.profileName, err)
 	}
