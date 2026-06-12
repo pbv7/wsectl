@@ -290,9 +290,9 @@ func TestReactiveRefreshFailureKeepsAuthError(t *testing.T) {
 	writeReactiveProfile(t, server.URL)
 	calls := stubRefreshSecret(t, auth.SecretBundle{}, errors.New("refresh endpoint down"))
 
-	out, err := execute("me")
+	stdout, stderr, err := executeSplit("me")
 	if err == nil {
-		t.Fatalf("expected authentication failure, got success:\n%s", out)
+		t.Fatalf("expected authentication failure, got success:\n%s", stdout)
 	}
 	if *calls != 1 {
 		t.Fatalf("refresh calls = %d, want 1", *calls)
@@ -302,6 +302,11 @@ func TestReactiveRefreshFailureKeepsAuthError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "Worksection HTTP 401") || strings.Contains(err.Error(), "refresh endpoint down") {
 		t.Fatalf("error must be the original 401, not the refresh detail: %v", err)
+	}
+	// The surfaced error stays the original 401, but the refresh failure must
+	// not vanish: it is the diagnostic for why recovery did not happen.
+	if !strings.Contains(stderr, "warning: reactive OAuth token refresh failed") || !strings.Contains(stderr, "refresh endpoint down") {
+		t.Fatalf("refresh failure must be warned on stderr:\n%s", stderr)
 	}
 }
 

@@ -260,6 +260,10 @@ func (s *state) client(ctx context.Context, warn func(format string, args ...any
 		wsClient.SetTokenRefresher(func(ctx context.Context) (string, error) {
 			refreshed, err := refreshSecretFunc(ctx, auth.HTTPClientWithTimeout(cfg.Timeout()), secret)
 			if err != nil {
+				// The command surfaces the original 401; without this the
+				// reason automatic recovery failed would vanish entirely.
+				// auth.Refresh redacts token material from its errors.
+				warn("reactive OAuth token refresh failed: %v", err)
 				return "", err
 			}
 			persistRefreshedSecret(ctx, secretInfo, refreshed, warn)
