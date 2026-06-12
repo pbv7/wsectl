@@ -104,16 +104,16 @@ func syncDirChain(dir, syncRoot string) error {
 // directory fsync with EINVAL/ENOTSUP; in both cases the rename itself is the
 // best available guarantee, so those failures are not treated as write errors.
 func syncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
 	d, err := os.Open(dir)
 	if err != nil {
-		if runtime.GOOS == "windows" {
-			return nil
-		}
 		return err
 	}
 	defer func() { _ = d.Close() }()
 	err = d.Sync()
-	if err == nil || runtime.GOOS == "windows" ||
+	if err == nil ||
 		errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP) ||
 		errors.Is(err, syscall.EOPNOTSUPP) || errors.Is(err, syscall.ENOSYS) {
 		return nil
