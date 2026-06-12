@@ -1,9 +1,11 @@
 package atomicfile
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
 )
 
 // WriteFile writes data to path through a same-directory temporary file and
@@ -98,8 +100,9 @@ func syncDirChain(dir, syncRoot string) error {
 }
 
 // syncDir fsyncs a directory so a rename within it survives a crash. Windows
-// cannot fsync directory handles; the rename itself is the best available
-// guarantee there, so sync errors are ignored on that platform.
+// cannot fsync directory handles, and some filesystems (NFS, FUSE) reject
+// directory fsync with EINVAL/ENOTSUP; in both cases the rename itself is the
+// best available guarantee, so those failures are not treated as write errors.
 func syncDir(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {
@@ -109,8 +112,10 @@ func syncDir(dir string) error {
 		return err
 	}
 	defer func() { _ = d.Close() }()
-	if err := d.Sync(); err != nil && runtime.GOOS != "windows" {
-		return err
+	err = d.Sync()
+	if err == nil || runtime.GOOS == "windows" ||
+		errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP) {
+		return nil
 	}
-	return nil
+	return err
 }

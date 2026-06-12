@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -60,6 +61,32 @@ func requireGetFails(t *testing.T, ref SecretRef) {
 	}
 	if got != (SecretBundle{}) {
 		t.Fatalf("failed Get must not return secret material, got %#v", got)
+	}
+}
+
+func TestEncryptedFileStoreSetCreatesMissingParents(t *testing.T) {
+	ref := SecretRef{Scheme: "encrypted-file", Name: filepath.Join(t.TempDir(), "a", "b", "secret.json")}
+	writeEncryptedSecret(t, ref, "passphrase")
+	got, err := (EncryptedFileStore{}).Get(context.Background(), ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccessToken != "access_123" {
+		t.Fatalf("round-trip through nested path failed, got %#v", got)
+	}
+}
+
+func TestPlaintextStoreSetCreatesMissingParents(t *testing.T) {
+	ref := SecretRef{Scheme: "plaintext", Name: filepath.Join(t.TempDir(), "a", "b", "secret.json")}
+	if err := (PlaintextStore{}).Set(context.Background(), ref, SecretBundle{AccessToken: "access_123"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := (PlaintextStore{}).Get(context.Background(), ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccessToken != "access_123" {
+		t.Fatalf("round-trip through nested path failed, got %#v", got)
 	}
 }
 

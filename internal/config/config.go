@@ -265,9 +265,6 @@ func Save(cfg Config) error {
 	if cfg.Path == "" {
 		cfg.Path = DefaultConfigPath()
 	}
-	if err := os.MkdirAll(filepath.Dir(cfg.Path), 0o700); err != nil {
-		return err
-	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "current_profile = %q\n\n", cfg.CurrentProfile)
 	fmt.Fprintf(&b, "[defaults]\noutput = %q\nrate_limit = %q\ntimeout = %q\n\n",
