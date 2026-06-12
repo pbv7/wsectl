@@ -31,7 +31,9 @@ type Credentials struct {
 }
 
 // Client wraps the Worksection HTTP API with auth, rate limiting, and error
-// classification.
+// classification. Client is not safe for concurrent use: the reactive token
+// refresh mutates creds.Token and the refreshed guard without locking, which
+// is sound for the CLI's sequential request pattern.
 type Client struct {
 	httpClient       *http.Client
 	accountURL       string
@@ -293,9 +295,10 @@ func (c *Client) doReadResponse(req *http.Request) (*rawHTTPResponse, error) {
 			// broken hook cannot spin the loop.
 			c.refreshed = true
 			newToken, refreshErr := c.refreshToken(req.Context())
-			if refreshErr != nil {
-				// The user-facing failure is the authentication error the
-				// API returned, not the refresh implementation detail.
+			if refreshErr != nil || newToken == "" {
+				// A failed refresh — including a hook that reports success
+				// with an empty token — surfaces the authentication error
+				// the API returned, not the refresh implementation detail.
 				return nil, lastErr
 			}
 			c.creds.Token = newToken

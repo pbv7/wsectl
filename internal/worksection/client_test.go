@@ -593,6 +593,28 @@ func TestClientReactiveRefreshHookFailurePreservesOriginal401(t *testing.T) {
 	}
 }
 
+// A hook that reports success but returns an empty token is a broken hook:
+// the original 401 surfaces and no replay is spent on a guaranteed failure.
+func TestClientReactiveRefreshEmptyTokenIsRefreshFailure(t *testing.T) {
+	rt, gotAuth := refreshStub([]int{http.StatusUnauthorized})
+	client := newRefreshTestClient(rt)
+	client.SetTokenRefresher(func(context.Context) (string, error) {
+		return "", nil
+	})
+
+	_, err := client.Call(context.Background(), "get_users", nil)
+	var wsErr *Error
+	if !errors.As(err, &wsErr) || wsErr.Code != CodeAuth {
+		t.Fatalf("err = %v, want CodeAuth", err)
+	}
+	if !strings.Contains(err.Error(), "Worksection HTTP 401") {
+		t.Fatalf("error must be the original 401: %v", err)
+	}
+	if len(*gotAuth) != 1 {
+		t.Fatalf("requests = %d, want 1 (no replay with an empty bearer)", len(*gotAuth))
+	}
+}
+
 // The refresh budget is once per Client (one command invocation), not once
 // per request: after a refresh recovered call one, a 401 on call two of the
 // same client is terminal without consulting the refresher again.
