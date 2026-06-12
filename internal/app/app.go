@@ -76,7 +76,11 @@ func RunWithIO(ctx context.Context, args []string, stdout, stderr io.Writer) err
 func errorFormat(ctx context.Context, args []string) string {
 	format, configPath := commands.ResolveOutputAndConfig(args)
 	if format == "" {
-		if cfg, err := config.Load(ctx, config.Overrides{ConfigPath: configPath}); err == nil {
+		cfg, err := config.Load(ctx, config.Overrides{ConfigPath: configPath})
+		// Mirror the command layer's loadConfig: a config that fails semantic
+		// validation still carries the user's output default; honor it when
+		// the default itself is valid.
+		if err == nil || (config.IsValidationError(err) && config.ValidOutput(cfg.Defaults.Output)) {
 			format = cfg.Defaults.Output
 		}
 	}

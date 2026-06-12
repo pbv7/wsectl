@@ -222,7 +222,7 @@ func applyEnv(cfg *Config) (envSources, error) {
 	if v := os.Getenv("WSECTL_HISTORY"); v != "" {
 		enabled, err := parseEnvBool(v)
 		if err != nil {
-			return sources, fmt.Errorf("WSECTL_HISTORY=%q: %w", v, err)
+			return sources, validationError{kind: validationKindHistory, err: fmt.Errorf("WSECTL_HISTORY=%q: %w", v, err)}
 		}
 		cfg.History.Enabled = enabled
 	}
