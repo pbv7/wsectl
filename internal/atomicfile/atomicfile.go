@@ -12,7 +12,8 @@ import (
 // the data is not.
 func WriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	syncRoot, err := mkdirAllTracked(dir)
+	if err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".wsectl-*")
@@ -45,7 +46,55 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	cleanup = false
-	return syncDir(dir)
+	return syncDirChain(dir, syncRoot)
+}
+
+// mkdirAllTracked creates dir like os.MkdirAll and returns the parent of the
+// topmost directory it had to create, or "" if dir already existed. That
+// parent holds the directory entry for the new chain and must be fsynced for
+// the chain to survive a crash.
+func mkdirAllTracked(dir string) (string, error) {
+	topMissing := ""
+	for d := dir; ; {
+		if _, err := os.Stat(d); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+		topMissing = d
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+		d = parent
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if topMissing == "" {
+		return "", nil
+	}
+	return filepath.Dir(topMissing), nil
+}
+
+// syncDirChain fsyncs dir and, when WriteFile created missing parents, each
+// ancestor up to and including syncRoot, so newly created directory entries
+// are durable along with the renamed file.
+func syncDirChain(dir, syncRoot string) error {
+	if err := syncDir(dir); err != nil {
+		return err
+	}
+	for d := dir; syncRoot != "" && d != syncRoot; {
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+		if err := syncDir(parent); err != nil {
+			return err
+		}
+		d = parent
+	}
+	return nil
 }
 
 // syncDir fsyncs a directory so a rename within it survives a crash. Windows

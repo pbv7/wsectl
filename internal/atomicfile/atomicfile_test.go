@@ -33,3 +33,29 @@ func TestWriteFileCreatesParentAndSetsPermissions(t *testing.T) {
 		t.Fatalf("permissions = %04o, want 0600", info.Mode().Perm())
 	}
 }
+
+func TestMkdirAllTrackedReportsParentOfTopmostCreatedDir(t *testing.T) {
+	base := t.TempDir()
+	nested := filepath.Join(base, "a", "b", "c")
+	syncRoot, err := mkdirAllTracked(nested)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if syncRoot != base {
+		t.Fatalf("syncRoot = %q, want parent of topmost created dir %q", syncRoot, base)
+	}
+	if info, err := os.Stat(nested); err != nil || !info.IsDir() {
+		t.Fatalf("nested dir not created: info=%v err=%v", info, err)
+	}
+}
+
+func TestMkdirAllTrackedReturnsEmptyForExistingDir(t *testing.T) {
+	base := t.TempDir()
+	syncRoot, err := mkdirAllTracked(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if syncRoot != "" {
+		t.Fatalf("syncRoot = %q, want \"\" when the directory already exists", syncRoot)
+	}
+}
