@@ -1,15 +1,21 @@
 package atomicfile
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 )
 
 // WriteFile writes data to path through a same-directory temporary file and
-// atomic rename.
+// atomic rename. The temporary file is fsynced before the rename and the
+// parent directory after it, so a crash cannot leave the rename durable while
+// the data is not.
 func WriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	syncRoot, err := mkdirAllTracked(dir)
+	if err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".wsectl-*")
@@ -31,6 +37,10 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 		_ = tmp.Close()
 		return err
 	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
@@ -38,5 +48,75 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	cleanup = false
+	return syncDirChain(dir, syncRoot)
+}
+
+// mkdirAllTracked creates dir like os.MkdirAll and returns the parent of the
+// topmost directory it had to create, or "" if dir already existed. That
+// parent holds the directory entry for the new chain and must be fsynced for
+// the chain to survive a crash.
+func mkdirAllTracked(dir string) (string, error) {
+	topMissing := ""
+	for d := dir; ; {
+		if _, err := os.Stat(d); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+		topMissing = d
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+		d = parent
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if topMissing == "" {
+		return "", nil
+	}
+	return filepath.Dir(topMissing), nil
+}
+
+// syncDirChain fsyncs dir and, when WriteFile created missing parents, each
+// ancestor up to and including syncRoot, so newly created directory entries
+// are durable along with the renamed file.
+func syncDirChain(dir, syncRoot string) error {
+	if err := syncDir(dir); err != nil {
+		return err
+	}
+	for d := dir; syncRoot != "" && d != syncRoot; {
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+		if err := syncDir(parent); err != nil {
+			return err
+		}
+		d = parent
+	}
 	return nil
+}
+
+// syncDir fsyncs a directory so a rename within it survives a crash. Windows
+// cannot fsync directory handles, and some filesystems (NFS, FUSE) reject
+// directory fsync with EINVAL/ENOTSUP; in both cases the rename itself is the
+// best available guarantee, so those failures are not treated as write errors.
+func syncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = d.Close() }()
+	err = d.Sync()
+	if err == nil ||
+		errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP) ||
+		errors.Is(err, syscall.EOPNOTSUPP) || errors.Is(err, syscall.ENOSYS) {
+		return nil
+	}
+	return err
 }

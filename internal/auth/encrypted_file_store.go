@@ -92,9 +92,6 @@ func (EncryptedFileStore) Set(_ context.Context, ref SecretRef, value SecretBund
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(ref.Name), 0o700); err != nil {
-		return err
-	}
 	return atomicfile.WriteFile(ref.Name, raw, 0o600)
 }
 
@@ -105,9 +102,6 @@ func (EncryptedFileStore) Delete(_ context.Context, ref SecretRef) error {
 func (EncryptedFileStore) CheckWritable(_ context.Context, ref SecretRef) error {
 	if os.Getenv("WSECTL_SECRET_PASSPHRASE") == "" {
 		return fmt.Errorf("WSECTL_SECRET_PASSPHRASE is required for encrypted-file secrets")
-	}
-	if err := os.MkdirAll(filepath.Dir(ref.Name), 0o700); err != nil {
-		return err
 	}
 	probe := filepath.Join(filepath.Dir(ref.Name), ".wsectl-write-check")
 	if err := atomicfile.WriteFile(probe, []byte("ok"), 0o600); err != nil {
