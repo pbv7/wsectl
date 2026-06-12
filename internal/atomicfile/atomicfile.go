@@ -114,7 +114,8 @@ func syncDir(dir string) error {
 	defer func() { _ = d.Close() }()
 	err = d.Sync()
 	if err == nil || runtime.GOOS == "windows" ||
-		errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP) {
+		errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP) ||
+		errors.Is(err, syscall.EOPNOTSUPP) || errors.Is(err, syscall.ENOSYS) {
 		return nil
 	}
 	return err

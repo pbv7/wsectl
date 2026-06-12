@@ -91,14 +91,14 @@ func TestPlaintextStoreSetCreatesMissingParents(t *testing.T) {
 }
 
 func TestEncryptedFileStoreRejectsWrongPassphrase(t *testing.T) {
-	ref := SecretRef{Scheme: "encrypted-file", Name: t.TempDir() + "/secret.json"}
+	ref := SecretRef{Scheme: "encrypted-file", Name: filepath.Join(t.TempDir(), "secret.json")}
 	writeEncryptedSecret(t, ref, "correct-passphrase")
 	t.Setenv("WSECTL_SECRET_PASSPHRASE", "wrong-passphrase")
 	requireGetFails(t, ref)
 }
 
 func TestEncryptedFileStoreRejectsTamperedCiphertext(t *testing.T) {
-	ref := SecretRef{Scheme: "encrypted-file", Name: t.TempDir() + "/secret.json"}
+	ref := SecretRef{Scheme: "encrypted-file", Name: filepath.Join(t.TempDir(), "secret.json")}
 	writeEncryptedSecret(t, ref, "passphrase")
 	payload := readEncryptedPayload(t, ref.Name)
 	payload.Data = flipFirstByte(t, payload.Data)
@@ -107,7 +107,7 @@ func TestEncryptedFileStoreRejectsTamperedCiphertext(t *testing.T) {
 }
 
 func TestEncryptedFileStoreRejectsTamperedNonce(t *testing.T) {
-	ref := SecretRef{Scheme: "encrypted-file", Name: t.TempDir() + "/secret.json"}
+	ref := SecretRef{Scheme: "encrypted-file", Name: filepath.Join(t.TempDir(), "secret.json")}
 	writeEncryptedSecret(t, ref, "passphrase")
 	payload := readEncryptedPayload(t, ref.Name)
 	payload.Nonce = flipFirstByte(t, payload.Nonce)
@@ -116,7 +116,7 @@ func TestEncryptedFileStoreRejectsTamperedNonce(t *testing.T) {
 }
 
 func TestEncryptedFileStoreRejectsTamperedSalt(t *testing.T) {
-	ref := SecretRef{Scheme: "encrypted-file", Name: t.TempDir() + "/secret.json"}
+	ref := SecretRef{Scheme: "encrypted-file", Name: filepath.Join(t.TempDir(), "secret.json")}
 	writeEncryptedSecret(t, ref, "passphrase")
 	payload := readEncryptedPayload(t, ref.Name)
 	payload.Salt = flipFirstByte(t, payload.Salt)
@@ -125,7 +125,7 @@ func TestEncryptedFileStoreRejectsTamperedSalt(t *testing.T) {
 }
 
 func TestEncryptedFileStoreRejectsUnsupportedKDF(t *testing.T) {
-	ref := SecretRef{Scheme: "encrypted-file", Name: t.TempDir() + "/secret.json"}
+	ref := SecretRef{Scheme: "encrypted-file", Name: filepath.Join(t.TempDir(), "secret.json")}
 	writeEncryptedSecret(t, ref, "passphrase")
 	payload := readEncryptedPayload(t, ref.Name)
 	payload.KDF = "scrypt"
@@ -137,7 +137,7 @@ func TestEncryptedFileStoreRejectsUnsupportedKDF(t *testing.T) {
 }
 
 func TestEncryptedFileStoreLegacyPayloadRejectsWrongPassphrase(t *testing.T) {
-	ref := SecretRef{Scheme: "encrypted-file", Name: t.TempDir() + "/legacy.json"}
+	ref := SecretRef{Scheme: "encrypted-file", Name: filepath.Join(t.TempDir(), "legacy.json")}
 	aead, err := legacyAEAD("correct-passphrase")
 	if err != nil {
 		t.Fatal(err)
