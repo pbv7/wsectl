@@ -187,7 +187,7 @@ applied.
 0 success
 1 general error
 2 usage or validation error
-3 authentication error
+3 authentication error (after any possible token refresh)
 4 authorization or permission error
 5 network error
 6 Worksection API error

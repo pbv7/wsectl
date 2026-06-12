@@ -152,7 +152,16 @@ Refresh explicitly:
 wsectl auth refresh
 ```
 
-Read commands also refresh OAuth access tokens when the stored expiry is close.
+Read commands refresh OAuth access tokens automatically in two ways:
+
+- **Proactive**: when the stored expiry is within five minutes, the token is refreshed before the request.
+- **Reactive**: when the API rejects a request with HTTP 401 and the profile carries refresh material (a refresh token plus client ID and secret),
+  the token is refreshed once and the request is replayed. At most one reactive refresh happens per command invocation; a second rejection is a
+  normal authentication failure (exit 3). This covers tokens whose expiry was never recorded — including environment credentials.
+
+After a successful refresh, the new tokens are written back to the profile's secret store. If that write fails, the command still completes using
+the refreshed token and prints a warning on stderr (suppressed by `--quiet`). Environment credentials are read-only by design and skip the
+write-back silently. `wsectl auth refresh` remains strict: an explicit refresh that cannot persist its result fails.
 
 ## Status And Logout
 

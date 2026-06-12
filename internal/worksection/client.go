@@ -38,6 +38,21 @@ type Client struct {
 	creds            Credentials
 	limiter          *rate.Limiter
 	maxResponseBytes int64
+	// refreshToken, when set, is consulted at most once per Client lifetime
+	// (the refreshed guard) to recover from an HTTP 401 in OAuth mode: the
+	// hook returns a fresh bearer token and the request is replayed once.
+	// The client knows nothing about how the token is obtained or persisted.
+	// The CLI issues requests sequentially, so no locking guards refreshed.
+	refreshToken func(ctx context.Context) (string, error)
+	refreshed    bool
+}
+
+// SetTokenRefresher installs the hook used to recover from an HTTP 401 in
+// OAuth mode. The hook is called at most once for the lifetime of the Client;
+// on success the request is replayed once with the returned bearer token, and
+// on failure the original authentication error is surfaced unchanged.
+func (c *Client) SetTokenRefresher(f func(ctx context.Context) (string, error)) {
+	c.refreshToken = f
 }
 
 // NewClient constructs a Worksection API client.
@@ -253,12 +268,8 @@ type rawHTTPResponse struct {
 
 func (c *Client) doReadResponse(req *http.Request) (*rawHTTPResponse, error) {
 	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		if attempt > 0 {
-			if err := sleepContext(req.Context(), time.Duration(attempt)*time.Second); err != nil {
-				return nil, &Error{Code: CodeNetwork, Message: err.Error()}
-			}
-		}
+	attempt := 0
+	for attempt < 3 {
 		attemptReq, err := requestForAttempt(req)
 		if err != nil {
 			return nil, &Error{Code: CodeNetwork, Message: err.Error()}
@@ -277,22 +288,58 @@ func (c *Client) doReadResponse(req *http.Request) (*rawHTTPResponse, error) {
 		}
 		code := statusCode(resp.StatusCode)
 		lastErr = &Error{Code: code, Message: fmt.Sprintf("Worksection HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))}
+		if resp.StatusCode == http.StatusUnauthorized && c.canReactiveRefresh() {
+			// The refresh budget is consumed before calling the hook so a
+			// broken hook cannot spin the loop.
+			c.refreshed = true
+			newToken, refreshErr := c.refreshToken(req.Context())
+			if refreshErr != nil {
+				// The user-facing failure is the authentication error the
+				// API returned, not the refresh implementation detail.
+				return nil, lastErr
+			}
+			c.creds.Token = newToken
+			// requestForAttempt clones the base request, so the new bearer
+			// must land there or every replay would carry the stale header.
+			req.Header.Set("Authorization", "Bearer "+newToken)
+			// Immediate replay: a credential fix is not a server fault, so
+			// it neither sleeps nor consumes a retry attempt.
+			continue
+		}
 		if resp.StatusCode == http.StatusTooManyRequests {
-			if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
-				if d, err := parseRetryAfter(retryAfter, time.Now()); err == nil {
-					if err := sleepContext(req.Context(), d); err != nil {
-						return nil, &Error{Code: CodeNetwork, Message: err.Error()}
+			attempt++
+			if attempt < 3 {
+				delay := time.Duration(attempt) * time.Second
+				if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+					if d, err := parseRetryAfter(retryAfter, time.Now()); err == nil {
+						delay = d
 					}
+				}
+				if err := sleepContext(req.Context(), delay); err != nil {
+					return nil, &Error{Code: CodeNetwork, Message: err.Error()}
 				}
 			}
 			continue
 		}
 		if resp.StatusCode >= 500 {
+			attempt++
+			if attempt < 3 {
+				if err := sleepContext(req.Context(), time.Duration(attempt)*time.Second); err != nil {
+					return nil, &Error{Code: CodeNetwork, Message: err.Error()}
+				}
+			}
 			continue
 		}
 		return nil, lastErr
 	}
 	return nil, lastErr
+}
+
+// canReactiveRefresh reports whether a 401 may be recovered by the token
+// refresh hook: OAuth mode, a hook installed, and the once-per-Client budget
+// not yet spent.
+func (c *Client) canReactiveRefresh() bool {
+	return c.creds.Mode == AuthOAuth2 && c.refreshToken != nil && !c.refreshed
 }
 
 func responseURL(resp *http.Response) string {

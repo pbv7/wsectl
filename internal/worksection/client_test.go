@@ -3,6 +3,7 @@ package worksection
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -480,4 +481,166 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
+}
+
+// refreshStub is a sequence-driven transport for reactive-refresh tests: it
+// returns the queued statuses in order and records the Authorization header
+// of every request it serves.
+func refreshStub(statuses []int) (rt roundTripFunc, gotAuth *[]string) {
+	var auths []string
+	gotAuth = &auths
+	rt = func(r *http.Request) (*http.Response, error) {
+		auths = append(auths, r.Header.Get("Authorization"))
+		status := statuses[len(auths)-1]
+		body := `{"status":"error","status_code":0,"message":"Invalid token"}`
+		if status == http.StatusOK {
+			body = `{"status":"ok","data":[{"id":"1"}]}`
+		}
+		return &http.Response{
+			StatusCode: status,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}, nil
+	}
+	return rt, gotAuth
+}
+
+func newRefreshTestClient(rt roundTripFunc) *Client {
+	return NewClient(&http.Client{Transport: rt}, Credentials{Mode: AuthOAuth2, Token: "stale-token", AccountURL: "https://example.test"}, time.Second, nil)
+}
+
+// A 401 with a refresher present is recovered by refreshing once and replaying
+// the request with the NEW bearer token. The header assertion is the load-
+// bearing one: requestForAttempt clones the base request, so mutating only
+// c.creds.Token would replay the stale header. The replay must also be
+// immediate — it is a credential fix, not a server-fault retry, so no backoff
+// sleep applies (a naive loop re-entry would sleep 1s).
+func TestClientReactiveRefreshRetriesOnceWithNewToken(t *testing.T) {
+	rt, gotAuth := refreshStub([]int{http.StatusUnauthorized, http.StatusOK})
+	client := newRefreshTestClient(rt)
+	refreshCalls := 0
+	client.SetTokenRefresher(func(context.Context) (string, error) {
+		refreshCalls++
+		return "new-token", nil
+	})
+
+	started := time.Now()
+	resp, err := client.Call(context.Background(), "get_users", nil)
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(resp.Data), `"id"`) {
+		t.Fatalf("unexpected data %s", resp.Data)
+	}
+	if refreshCalls != 1 {
+		t.Fatalf("refresher calls = %d, want 1", refreshCalls)
+	}
+	if len(*gotAuth) != 2 {
+		t.Fatalf("requests = %d, want 2", len(*gotAuth))
+	}
+	if (*gotAuth)[1] != "Bearer new-token" {
+		t.Fatalf("replayed Authorization = %q, want \"Bearer new-token\"", (*gotAuth)[1])
+	}
+	if elapsed >= 900*time.Millisecond {
+		t.Fatalf("refresh replay took %v; it must not inherit the 1s server-fault backoff", elapsed)
+	}
+}
+
+// A second 401 after a successful refresh is terminal: exactly two requests,
+// one refresher call, and the authentication error surfaces.
+func TestClientReactiveRefreshSecond401IsTerminal(t *testing.T) {
+	rt, gotAuth := refreshStub([]int{http.StatusUnauthorized, http.StatusUnauthorized})
+	client := newRefreshTestClient(rt)
+	refreshCalls := 0
+	client.SetTokenRefresher(func(context.Context) (string, error) {
+		refreshCalls++
+		return "new-token", nil
+	})
+
+	_, err := client.Call(context.Background(), "get_users", nil)
+	var wsErr *Error
+	if !errors.As(err, &wsErr) || wsErr.Code != CodeAuth {
+		t.Fatalf("err = %v, want CodeAuth", err)
+	}
+	if refreshCalls != 1 {
+		t.Fatalf("refresher calls = %d, want 1", refreshCalls)
+	}
+	if len(*gotAuth) != 2 {
+		t.Fatalf("requests = %d, want exactly 2 (no third attempt)", len(*gotAuth))
+	}
+}
+
+// A failing refresher must surface the ORIGINAL HTTP 401 authentication
+// error, not the refresh implementation detail, and must not replay.
+func TestClientReactiveRefreshHookFailurePreservesOriginal401(t *testing.T) {
+	rt, gotAuth := refreshStub([]int{http.StatusUnauthorized})
+	client := newRefreshTestClient(rt)
+	client.SetTokenRefresher(func(context.Context) (string, error) {
+		return "", errors.New("oauth refresh exploded")
+	})
+
+	_, err := client.Call(context.Background(), "get_users", nil)
+	var wsErr *Error
+	if !errors.As(err, &wsErr) || wsErr.Code != CodeAuth {
+		t.Fatalf("err = %v, want CodeAuth", err)
+	}
+	if !strings.Contains(err.Error(), "Worksection HTTP 401") || strings.Contains(err.Error(), "exploded") {
+		t.Fatalf("error must be the original 401, not the refresh detail: %v", err)
+	}
+	if len(*gotAuth) != 1 {
+		t.Fatalf("requests = %d, want 1 (no replay after failed refresh)", len(*gotAuth))
+	}
+}
+
+// The refresh budget is once per Client (one command invocation), not once
+// per request: after a refresh recovered call one, a 401 on call two of the
+// same client is terminal without consulting the refresher again.
+func TestClientReactiveRefreshOncePerClient(t *testing.T) {
+	rt, gotAuth := refreshStub([]int{http.StatusUnauthorized, http.StatusOK, http.StatusUnauthorized})
+	client := newRefreshTestClient(rt)
+	refreshCalls := 0
+	client.SetTokenRefresher(func(context.Context) (string, error) {
+		refreshCalls++
+		return "new-token", nil
+	})
+
+	if _, err := client.Call(context.Background(), "get_users", nil); err != nil {
+		t.Fatalf("first call should recover via refresh: %v", err)
+	}
+	_, err := client.Call(context.Background(), "get_users", nil)
+	var wsErr *Error
+	if !errors.As(err, &wsErr) || wsErr.Code != CodeAuth {
+		t.Fatalf("second call err = %v, want CodeAuth", err)
+	}
+	if refreshCalls != 1 {
+		t.Fatalf("refresher calls = %d, want 1 across the client lifetime", refreshCalls)
+	}
+	if len(*gotAuth) != 3 {
+		t.Fatalf("requests = %d, want 3", len(*gotAuth))
+	}
+}
+
+// Admin-token mode has no refresh concept: a present refresher is never
+// consulted and the 401 stays terminal.
+func TestClientAdminModeNeverConsultsRefresher(t *testing.T) {
+	rt, gotAuth := refreshStub([]int{http.StatusUnauthorized})
+	client := NewClient(&http.Client{Transport: rt}, Credentials{Mode: AuthAdmin, AdminKey: "k", AccountURL: "https://example.test"}, time.Second, nil)
+	refreshCalls := 0
+	client.SetTokenRefresher(func(context.Context) (string, error) {
+		refreshCalls++
+		return "new-token", nil
+	})
+
+	_, err := client.Call(context.Background(), "get_users", nil)
+	var wsErr *Error
+	if !errors.As(err, &wsErr) || wsErr.Code != CodeAuth {
+		t.Fatalf("err = %v, want CodeAuth", err)
+	}
+	if refreshCalls != 0 {
+		t.Fatalf("refresher calls = %d, want 0 in admin mode", refreshCalls)
+	}
+	if len(*gotAuth) != 1 {
+		t.Fatalf("requests = %d, want 1", len(*gotAuth))
+	}
 }
