@@ -87,8 +87,12 @@ func TestRefreshProfileSecretPersistFailureWarnsAndProceeds(t *testing.T) {
 }
 
 // ctxHonoringStore fails Set when the passed context is already cancelled,
-// like any store backed by ctx-aware I/O would.
-type ctxHonoringStore struct{ persisted *auth.SecretBundle }
+// like any store backed by ctx-aware I/O would, and records whether the
+// write context was bounded by a deadline.
+type ctxHonoringStore struct {
+	persisted   *auth.SecretBundle
+	hadDeadline *bool
+}
 
 func (ctxHonoringStore) Get(context.Context, auth.SecretRef) (auth.SecretBundle, error) {
 	return auth.SecretBundle{}, nil
@@ -96,6 +100,10 @@ func (ctxHonoringStore) Get(context.Context, auth.SecretRef) (auth.SecretBundle,
 func (s ctxHonoringStore) Set(ctx context.Context, _ auth.SecretRef, value auth.SecretBundle) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if s.hadDeadline != nil {
+		_, ok := ctx.Deadline()
+		*s.hadDeadline = ok
 	}
 	*s.persisted = value
 	return nil
@@ -126,6 +134,21 @@ func TestPersistRefreshedSecretSurvivesCancelledContext(t *testing.T) {
 	}
 	if len(warnings) != 0 {
 		t.Fatalf("persist should have succeeded silently, got %v", warnings)
+	}
+}
+
+// The detached write must still be bounded: without a deadline, a hanging
+// ctx-aware store would block the process beyond user cancellation.
+func TestPersistRefreshedSecretWriteIsBounded(t *testing.T) {
+	var persisted auth.SecretBundle
+	hadDeadline := false
+	secretInfo := profileSecret{
+		store: ctxHonoringStore{persisted: &persisted, hadDeadline: &hadDeadline},
+		ref:   auth.SecretRef{Scheme: "keyring", Name: "wsectl/default"},
+	}
+	persistRefreshedSecret(context.Background(), secretInfo, expiringOAuthSecret(), func(string, ...any) {})
+	if !hadDeadline {
+		t.Fatal("the cancellation-detached persist write must carry a deadline")
 	}
 }
 

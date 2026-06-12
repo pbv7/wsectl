@@ -379,8 +379,13 @@ func persistRefreshedSecret(ctx context.Context, secretInfo profileSecret, refre
 	}
 	// A successful refresh may have rotated the old refresh token away
 	// server-side; losing the new bundle to a cancelled command context
-	// would lock the user out. Detach the write from cancellation.
-	if err := secretInfo.store.Set(context.WithoutCancel(ctx), secretInfo.ref, refreshed); err != nil {
+	// would lock the user out. Detach the write from cancellation, but keep
+	// it bounded so a hanging store cannot block the process forever. The
+	// bound is generous because a keyring backend may legitimately wait on
+	// an interactive OS prompt.
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	if err := secretInfo.store.Set(writeCtx, secretInfo.ref, refreshed); err != nil {
 		warn("refreshed OAuth token could not be persisted: %v; continuing with the in-memory token for this run", err)
 	}
 }
