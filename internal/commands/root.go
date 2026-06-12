@@ -182,6 +182,16 @@ func (s *state) loadConfig(ctx context.Context) (config.Config, error) {
 		return s.cachedConfig, s.cachedConfigErr
 	}
 	cfg, err := config.Load(ctx, s.configOverrides())
+	if err != nil && config.IsValidationError(err) {
+		// A semantic validation failure is the user's input to fix: exit 2
+		// with a "usage" envelope code per the documented contract. The
+		// parsed config still carries the user's output default; honor it
+		// for error rendering when the default itself is valid.
+		if s.format == "" && config.ValidOutput(cfg.Defaults.Output) {
+			s.format = cfg.Defaults.Output
+		}
+		err = worksection.UsageError("%s", err.Error())
+	}
 	if err == nil && s.format == "" {
 		s.format = cfg.Defaults.Output
 	}

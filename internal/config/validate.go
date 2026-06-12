@@ -13,9 +13,7 @@ func Validate(cfg Config) error {
 	if cfg.Defaults.Output == "" {
 		cfg.Defaults.Output = "auto"
 	}
-	switch cfg.Defaults.Output {
-	case "auto", "json", "yaml", "table", "ndjson", "raw":
-	default:
+	if !ValidOutput(cfg.Defaults.Output) {
 		return validationFailure(validationKindOutput, "invalid output %q", cfg.Defaults.Output)
 	}
 	if d, err := time.ParseDuration(cfg.Defaults.Timeout); cfg.Defaults.Timeout != "" && err != nil {
@@ -35,16 +33,16 @@ func Validate(cfg Config) error {
 		switch p.AuthType {
 		case "", "oauth2", "admin_token":
 		default:
-			return fmt.Errorf("profile %q has invalid auth_type %q", name, p.AuthType)
+			return validationFailure(validationKindProfile, "profile %q has invalid auth_type %q", name, p.AuthType)
 		}
 		if p.AccountURL == "" {
-			return fmt.Errorf("profile %q missing account_url", name)
+			return validationFailure(validationKindProfile, "profile %q missing account_url", name)
 		}
 		if err := ValidateAccountURL(p.AccountURL); err != nil {
-			return fmt.Errorf("profile %q has %w", name, err)
+			return validationFailure(validationKindProfile, "profile %q has %w", name, err)
 		}
 		if err := ValidateSecretRef(p.SecretRef); err != nil {
-			return fmt.Errorf("profile %q has %w", name, err)
+			return validationFailure(validationKindProfile, "profile %q has %w", name, err)
 		}
 	}
 	return nil
@@ -72,6 +70,7 @@ const (
 	validationKindTimeout   validationKind = "timeout"
 	validationKindRateLimit validationKind = "rate_limit"
 	validationKindHistory   validationKind = "history"
+	validationKindProfile   validationKind = "profile"
 )
 
 type validationError struct {
@@ -92,4 +91,23 @@ func validationKindOf(err error) (validationKind, bool) {
 		return validationErr.kind, true
 	}
 	return "", false
+}
+
+// ValidOutput reports whether value is a supported default output format.
+func ValidOutput(value string) bool {
+	switch value {
+	case "auto", "json", "yaml", "table", "ndjson", "raw":
+		return true
+	default:
+		return false
+	}
+}
+
+// IsValidationError reports whether err is a semantic validation failure of
+// the merged configuration (config file, env overrides, or flags) — the
+// user's input to fix, mapped to the usage/validation exit code by the
+// command layer. Read or parse failures are not validation errors.
+func IsValidationError(err error) bool {
+	_, ok := validationKindOf(err)
+	return ok
 }

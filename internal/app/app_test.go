@@ -178,6 +178,132 @@ func TestUsageErrorFormatMatchesShortcutPrecedence(t *testing.T) {
 // fails JSON parsing) is a general failure (exit 1), not a usage error, and
 // the exit code must not depend on output format. Guards against the
 // top-level classifier over-broadly tagging non-usage errors as usage.
+// F3: the documented contract maps exit 2 to "usage or validation error". A
+// config-file or env validation failure is the user's input to fix, so it must
+// exit 2 with a "usage" envelope code — independent of output format.
+func TestConfigValidationErrorExitsUsage(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	bad := "[profiles.default]\naccount_url = \"not a url\"\nauth_type = \"oauth2\"\nsecret_ref = \"plaintext:secret.json\"\n"
+	if err := os.WriteFile(cfgPath, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WSECTL_CONFIG", cfgPath)
+	t.Setenv("WSECTL_OUTPUT", "")
+
+	_, stderr, exit := runCapture(t, "projects", "list")
+	if exit != 2 {
+		t.Fatalf("human: exit = %d, want 2 (validation); stderr: %s", exit, strings.TrimSpace(stderr))
+	}
+
+	stdout, stderr, exit := runCapture(t, "projects", "list", "--json")
+	if exit != 2 {
+		t.Fatalf("json: exit = %d, want 2 (validation); stderr: %s", exit, strings.TrimSpace(stderr))
+	}
+	if stdout != "" {
+		t.Fatalf("validation error leaked to stdout: %q", stdout)
+	}
+	if !strings.Contains(stderr, `"code": "usage"`) {
+		t.Fatalf("json envelope code must be usage; got:\n%s", stderr)
+	}
+}
+
+// A validation error must still honor a valid machine default from the same
+// parsed config: defaults.output = "json" renders the usage envelope even
+// though the profile section is invalid. An invalid defaults.output itself
+// cannot be adopted and falls back to plain text.
+func TestConfigValidationErrorHonorsConfigDefaultFormat(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	bad := "[defaults]\noutput = \"json\"\n\n[profiles.default]\naccount_url = \"not a url\"\nauth_type = \"oauth2\"\nsecret_ref = \"plaintext:secret.json\"\n"
+	if err := os.WriteFile(cfgPath, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WSECTL_CONFIG", cfgPath)
+	t.Setenv("WSECTL_OUTPUT", "")
+
+	stdout, stderr, exit := runCapture(t, "projects", "list")
+	if exit != 2 {
+		t.Fatalf("exit = %d, want 2; stderr: %s", exit, strings.TrimSpace(stderr))
+	}
+	if stdout != "" {
+		t.Fatalf("validation error leaked to stdout: %q", stdout)
+	}
+	if !strings.Contains(stderr, `"code": "usage"`) {
+		t.Fatalf("config defaults.output=json must select the envelope; got:\n%s", stderr)
+	}
+
+	invalidOutput := "[defaults]\noutput = \"bogus\"\n"
+	if err := os.WriteFile(cfgPath, []byte(invalidOutput), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, exit = runCapture(t, "projects", "list")
+	if exit != 2 {
+		t.Fatalf("invalid output: exit = %d, want 2; stderr: %s", exit, strings.TrimSpace(stderr))
+	}
+	if strings.Contains(stderr, `"status"`) {
+		t.Fatalf("an invalid defaults.output must not be adopted as the error format; got:\n%s", stderr)
+	}
+}
+
+// The same partial-config adoption applies to pre-body usage errors: a config
+// whose profile section is invalid still carries a valid defaults.output, and
+// a flag-parse error must render with it.
+func TestPreBodyUsageErrorHonorsDefaultFormatFromInvalidConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	bad := "[defaults]\noutput = \"json\"\n\n[profiles.default]\naccount_url = \"not a url\"\nauth_type = \"oauth2\"\nsecret_ref = \"plaintext:secret.json\"\n"
+	if err := os.WriteFile(cfgPath, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WSECTL_CONFIG", cfgPath)
+	t.Setenv("WSECTL_OUTPUT", "")
+
+	stdout, stderr, exit := runCapture(t, "projects", "list", "--badflag")
+	if exit != 2 {
+		t.Fatalf("exit = %d, want 2; stderr: %s", exit, strings.TrimSpace(stderr))
+	}
+	if stdout != "" {
+		t.Fatalf("usage error leaked to stdout: %q", stdout)
+	}
+	if !strings.Contains(stderr, `"code": "usage"`) {
+		t.Fatalf("defaults.output=json from a config with an invalid profile must still select the envelope; got:\n%s", stderr)
+	}
+}
+
+// An invalid env override is equally the user's input to fix: exit 2.
+func TestEnvValidationErrorExitsUsage(t *testing.T) {
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_OUTPUT", "")
+	t.Setenv("WSECTL_RATE_LIMIT", "fast")
+
+	_, stderr, exit := runCapture(t, "projects", "list")
+	if exit != 2 {
+		t.Fatalf("exit = %d, want 2; stderr: %s", exit, strings.TrimSpace(stderr))
+	}
+	if !strings.Contains(stderr, "WSECTL_RATE_LIMIT") {
+		t.Fatalf("error must attribute the env source; got: %s", strings.TrimSpace(stderr))
+	}
+}
+
+// The validation boundary is semantic checks only: a config file that cannot
+// be parsed at all is not classified as the user's validation error and stays
+// a general failure.
+func TestUnparseableConfigStaysGeneral(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(cfgPath, []byte("not = [valid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WSECTL_CONFIG", cfgPath)
+	t.Setenv("WSECTL_OUTPUT", "")
+
+	_, _, exit := runCapture(t, "projects", "list")
+	if exit != 1 {
+		t.Fatalf("exit = %d, want 1 (general)", exit)
+	}
+}
+
 func TestInternalErrorStaysGeneralAcrossFormats(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{not valid json`))
