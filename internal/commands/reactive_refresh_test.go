@@ -86,6 +86,49 @@ func TestRefreshProfileSecretPersistFailureWarnsAndProceeds(t *testing.T) {
 	}
 }
 
+// ctxHonoringStore fails Set when the passed context is already cancelled,
+// like any store backed by ctx-aware I/O would.
+type ctxHonoringStore struct{ persisted *auth.SecretBundle }
+
+func (ctxHonoringStore) Get(context.Context, auth.SecretRef) (auth.SecretBundle, error) {
+	return auth.SecretBundle{}, nil
+}
+func (s ctxHonoringStore) Set(ctx context.Context, _ auth.SecretRef, value auth.SecretBundle) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	*s.persisted = value
+	return nil
+}
+func (ctxHonoringStore) Delete(context.Context, auth.SecretRef) error        { return nil }
+func (ctxHonoringStore) CheckWritable(context.Context, auth.SecretRef) error { return nil }
+
+// Once a refresh succeeds, the server may have rotated the old refresh token
+// away; losing the new bundle to a cancelled command context would lock the
+// user out. Persistence must therefore not run on the command's context.
+func TestPersistRefreshedSecretSurvivesCancelledContext(t *testing.T) {
+	var persisted auth.SecretBundle
+	secretInfo := profileSecret{
+		store: ctxHonoringStore{persisted: &persisted},
+		ref:   auth.SecretRef{Scheme: "keyring", Name: "wsectl/default"},
+	}
+	refreshed := expiringOAuthSecret()
+	refreshed.AccessToken = "fresh-token"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var warnings []string
+	persistRefreshedSecret(ctx, secretInfo, refreshed, func(format string, args ...any) {
+		warnings = append(warnings, fmt.Sprintf(format, args...))
+	})
+	if persisted.AccessToken != "fresh-token" {
+		t.Fatalf("refreshed bundle must persist despite a cancelled command context; warnings: %v", warnings)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("persist should have succeeded silently, got %v", warnings)
+	}
+}
+
 // A4 (env store): not persisting is the env store's designed behavior, so a
 // refresh proceeds silently — no warning noise on every invocation.
 func TestRefreshProfileSecretEnvStoreSkipsPersistSilently(t *testing.T) {
@@ -323,6 +366,14 @@ func TestReactiveRefreshPersistFailureWarnsEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(secretDir, 0o700) })
+	// Root (e.g. Docker CI) bypasses permission checks; probe and skip when
+	// the directory is still writable so the test does not assert a warning
+	// that cannot occur.
+	probePath := filepath.Join(secretDir, "probe.txt")
+	if err := os.WriteFile(probePath, []byte("probe"), 0o600); err == nil {
+		_ = os.Remove(probePath)
+		t.Skip("directory writable despite chmod 0500 (likely running as root)")
+	}
 
 	refreshed := auth.SecretBundle{
 		ClientID:     "client_123",

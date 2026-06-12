@@ -377,7 +377,10 @@ func persistRefreshedSecret(ctx context.Context, secretInfo profileSecret, refre
 	if _, readOnly := secretInfo.store.(auth.EnvStore); readOnly {
 		return
 	}
-	if err := secretInfo.store.Set(ctx, secretInfo.ref, refreshed); err != nil {
+	// A successful refresh may have rotated the old refresh token away
+	// server-side; losing the new bundle to a cancelled command context
+	// would lock the user out. Detach the write from cancellation.
+	if err := secretInfo.store.Set(context.WithoutCancel(ctx), secretInfo.ref, refreshed); err != nil {
 		warn("refreshed OAuth token could not be persisted: %v; continuing with the in-memory token for this run", err)
 	}
 }
