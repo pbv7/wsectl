@@ -76,7 +76,8 @@ JSON Schema.
 
 - `get_projects`: first-class `--status archived` maps to API `filter=archive`. Raw `api call` users should pass `--param filter=archive`.
 - `get_events`: `period` is required; `id_project` is optional.
-- `get_tasks` and `get_all_tasks`: completed tasks are not exposed through list filters. Use `wsectl tasks search --status done`.
+- `get_tasks` and `get_all_tasks`: completed tasks are not exposed through list filters. Use `wsectl tasks search` with a search dimension,
+  e.g. `wsectl tasks search --project ID --status done`.
 - `search_tasks`: CLI `--query TEXT` is translated to `filter=name has 'TEXT'`; the CLI does not send an undocumented `search` parameter. The
   documented `id_task` search selector is exposed as `wsectl tasks search --task TASK_ID`.
 - `get_costs` and `get_costs_total`: public `--timer` maps to API `is_timer`. `costs list` returns the cost entries as an array at `data` with the
