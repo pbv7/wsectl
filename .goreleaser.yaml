@@ -63,27 +63,36 @@ changelog:
   use: github
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
-      - '^ci:'
+      # Match both unscoped (docs:) and scoped (docs(x):) conventional types,
+      # so housekeeping commits stay out of the changelog either way.
+      - '^docs(\([^)]+\))?:'
+      - '^test(\([^)]+\))?:'
+      - '^chore(\([^)]+\))?:'
+      - '^ci(\([^)]+\))?:'
+      - '^style(\([^)]+\))?:'
       - 'typo'
   groups:
+    # Breaking changes are matched first (any conventional type with a "!"),
+    # so a breaking commit surfaces at the top instead of being buried in its
+    # type group. goreleaser assigns each commit to the first matching group.
+    - title: '⚠️ Breaking Changes'
+      regexp: '^.*?\w+(\([^)]+\))?!:.+$'
+      order: 0
     - title: Features
       regexp: '^.*?feat(\([^)]+\))??!?:.+$'
-      order: 0
+      order: 1
     - title: 'Bug Fixes'
       regexp: '^.*?fix(\([^)]+\))??!?:.+$'
-      order: 1
+      order: 2
     - title: Performance
       regexp: '^.*?perf(\([^)]+\))??!?:.+$'
-      order: 2
+      order: 3
     - title: Refactoring
       regexp: '^.*?refactor(\([^)]+\))??!?:.+$'
-      order: 3
+      order: 4
     - title: Dependencies
       regexp: '^.*?build\(deps[^)]*\)!?:.+$'
-      order: 4
+      order: 5
     - title: Others
       order: 999
 
