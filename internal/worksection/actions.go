@@ -30,6 +30,9 @@ type ParamSpec struct {
 	// pattern checks format only; the server still enforces value ranges.
 	Pattern     string `json:"pattern,omitempty"`
 	Description string `json:"description,omitempty"`
+	// re is the compiled Pattern, set by withPattern so validation reuses it
+	// instead of recompiling per call. Unexported, so it is not serialized.
+	re *regexp.Regexp
 }
 
 // FieldSpec is an advisory response field contract. It is intentionally not a
@@ -128,7 +131,7 @@ var readActions = map[string]Action{
 		anyOf("filter", "id_project", "id_task", "email_user_to", "email_user_from"),
 		notes("The CLI translates --query TEXT to filter=name has 'TEXT'. The raw API parameter is filter, not search.",
 			"search_tasks needs at least one of filter, id_project, id_task, email_user_to, email_user_from; status and extra are modifiers, not search criteria.",
-			"The advanced filter grammar supports fields name and date_added with operators has, <, >, and (e.g. \"date_added > '01.06.2026' and date_added < '12.06.2026'\"), enabling server-side date-range filtering. Unsupported fields such as status, tag, or priority make Worksection reject the filter with a misleading \"Field is required: filter\".")),
+			"The advanced filter grammar supports name and the date fields dateadd, datestart, dateend, dateclose (the underscore response-field forms date_added/date_closed are also accepted) with operators has, <, >, and (e.g. \"dateadd > '01.06.2026' and dateadd < '12.06.2026'\"), enabling server-side date-range filtering. Unsupported fields such as status, tag, or priority make Worksection reject the filter with a misleading \"Field is required: filter\".")),
 
 	"get_comments": action("get_comments", "List task comments", []string{"oauth2", "admin_token"}, []string{"comments_read"},
 		responseArray("data", fields("id:string", "text:string", "date_added:string", "user:object", "files:array")), cols("id", "date_added", "user", "text"), commands("wsectl comments list"),
@@ -268,8 +271,13 @@ func validateProvidedParam(action, name, value string, knownParams map[string]Pa
 		return enumValidationError(action, name, value, p.Enum)
 	}
 	if p.Pattern != "" {
-		matched, err := regexp.MatchString(p.Pattern, value)
-		if err != nil || !matched {
+		matched := false
+		if p.re != nil {
+			matched = p.re.MatchString(value)
+		} else {
+			matched, _ = regexp.MatchString(p.Pattern, value)
+		}
+		if !matched {
 			return UsageError("parameter %q for action %s is invalid (%q); expected %s", name, action, value, p.Description)
 		}
 	}
@@ -494,10 +502,11 @@ func anyOf(names ...string) func(*Action) {
 }
 
 func withPattern(p ParamSpec, pattern string) ParamSpec {
-	// Compile at package-init time so a malformed pattern panics immediately
-	// (in tests / at startup) rather than silently failing validation later.
-	regexp.MustCompile(pattern)
+	// MustCompile at package-init time: a malformed pattern panics immediately
+	// (in tests / at startup), and the compiled form is cached for reuse so
+	// validation does not recompile on every call.
 	p.Pattern = pattern
+	p.re = regexp.MustCompile(pattern)
 	return p
 }
 
