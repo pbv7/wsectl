@@ -9,14 +9,19 @@ import (
 )
 
 type Meta struct {
-	Action          string   `json:"action,omitempty" yaml:"action,omitempty"`
-	Profile         string   `json:"profile,omitempty" yaml:"profile,omitempty"`
-	AccountURL      string   `json:"account_url,omitempty" yaml:"account_url,omitempty"`
-	ContractVersion string   `json:"contract_version,omitempty" yaml:"contract_version,omitempty"`
-	ResponseShape   string   `json:"response_shape,omitempty" yaml:"response_shape,omitempty"`
-	Count           int      `json:"count" yaml:"count"`
-	Truncated       bool     `json:"truncated" yaml:"truncated"`
-	Warnings        []string `json:"warnings" yaml:"warnings"`
+	Action          string `json:"action,omitempty" yaml:"action,omitempty"`
+	Profile         string `json:"profile,omitempty" yaml:"profile,omitempty"`
+	AccountURL      string `json:"account_url,omitempty" yaml:"account_url,omitempty"`
+	ContractVersion string `json:"contract_version,omitempty" yaml:"contract_version,omitempty"`
+	ResponseShape   string `json:"response_shape,omitempty" yaml:"response_shape,omitempty"`
+	// Aggregate carries a server-side summary that sits beside the records
+	// (e.g. costs list's "total"). It is raw JSON; YAML rendering handles it
+	// explicitly (see yaml.go) because yaml.Marshal would base64-encode a
+	// json.RawMessage, so it is excluded from default YAML marshaling here.
+	Aggregate json.RawMessage `json:"aggregate,omitempty" yaml:"-"`
+	Count     int             `json:"count" yaml:"count"`
+	Truncated bool            `json:"truncated" yaml:"truncated"`
+	Warnings  []string        `json:"warnings" yaml:"warnings"`
 }
 
 // Envelope is the stable top-level shape for machine-readable command output.
@@ -239,13 +244,6 @@ func LimitData(data json.RawMessage, limit int, contract worksection.ResponseCon
 	limited, err := json.Marshal(arr[:limit])
 	if err != nil {
 		return nil, false, err
-	}
-	if isCompositeContract(contract) {
-		out, err := setRawAtPath(data, contractDataPath(contract), limited)
-		if err != nil {
-			return nil, false, err
-		}
-		return out, true, nil
 	}
 	return limited, true, nil
 }

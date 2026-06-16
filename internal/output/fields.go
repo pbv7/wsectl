@@ -13,22 +13,6 @@ func ApplyFieldSelection(env Envelope, fields []string, knownFields []string, co
 		return env, nil
 	}
 	warnings := fieldContractWarnings(fields, knownFields)
-	if isCompositeContract(contract) {
-		raw, ok := rawAtPath(env.Data, contractDataPath(contract))
-		if ok {
-			selected, err := projectRaw(raw, fields, &warnings)
-			if err != nil {
-				return env, err
-			}
-			data, err := setRawAtPath(env.Data, contractDataPath(contract), selected)
-			if err != nil {
-				return env, err
-			}
-			env.Data = data
-			env.Meta.Warnings = appendWarnings(env.Meta.Warnings, warnings)
-			return env, nil
-		}
-	}
 	data, err := projectRaw(env.Data, fields, &warnings)
 	if err != nil {
 		return env, err

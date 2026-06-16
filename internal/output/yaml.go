@@ -25,22 +25,72 @@ import (
 // Tag to choose quoting at output time, so stringy "true"/"42" stay
 // quoted while !!int values render unquoted.
 func YAML(env Envelope) ([]byte, error) {
+	meta, err := metaToYAML(env.Meta)
+	if err != nil {
+		return nil, err
+	}
 	out := struct {
 		Status string     `yaml:"status"`
 		Data   *yaml.Node `yaml:"data,omitempty"`
 		Error  *ErrorBody `yaml:"error,omitempty"`
-		Meta   Meta       `yaml:"meta"`
-	}{Status: env.Status, Error: env.Error, Meta: env.Meta}
+		Meta   yamlMeta   `yaml:"meta"`
+	}{Status: env.Status, Error: env.Error, Meta: meta}
 	if len(env.Data) > 0 {
-		dec := json.NewDecoder(bytes.NewReader(env.Data))
-		dec.UseNumber()
-		var v any
-		if err := dec.Decode(&v); err != nil {
+		node, err := jsonRawToYAML(env.Data)
+		if err != nil {
 			return nil, err
 		}
-		out.Data = jsonToYAML(v)
+		out.Data = node
 	}
 	return yaml.Marshal(out)
+}
+
+// yamlMeta mirrors Meta for YAML output, but renders Aggregate (raw JSON) as a
+// structured node rather than letting yaml.Marshal base64-encode the
+// json.RawMessage as !!binary. Field order matches Meta's JSON order.
+type yamlMeta struct {
+	Action          string     `yaml:"action,omitempty"`
+	Profile         string     `yaml:"profile,omitempty"`
+	AccountURL      string     `yaml:"account_url,omitempty"`
+	ContractVersion string     `yaml:"contract_version,omitempty"`
+	ResponseShape   string     `yaml:"response_shape,omitempty"`
+	Aggregate       *yaml.Node `yaml:"aggregate,omitempty"`
+	Count           int        `yaml:"count"`
+	Truncated       bool       `yaml:"truncated"`
+	Warnings        []string   `yaml:"warnings"`
+}
+
+func metaToYAML(m Meta) (yamlMeta, error) {
+	out := yamlMeta{
+		Action:          m.Action,
+		Profile:         m.Profile,
+		AccountURL:      m.AccountURL,
+		ContractVersion: m.ContractVersion,
+		ResponseShape:   m.ResponseShape,
+		Count:           m.Count,
+		Truncated:       m.Truncated,
+		Warnings:        m.Warnings,
+	}
+	if len(m.Aggregate) > 0 {
+		node, err := jsonRawToYAML(m.Aggregate)
+		if err != nil {
+			return yamlMeta{}, err
+		}
+		out.Aggregate = node
+	}
+	return out, nil
+}
+
+// jsonRawToYAML decodes JSON (preserving integer text via UseNumber, the same
+// reason documented above) and converts it to a yaml.Node tree.
+func jsonRawToYAML(raw json.RawMessage) (*yaml.Node, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	return jsonToYAML(v), nil
 }
 
 // jsonToYAML converts a value produced by json.Decoder (with UseNumber)

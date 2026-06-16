@@ -34,6 +34,32 @@ func TestActionSpecsHaveResponseContracts(t *testing.T) {
 		if action.ReadOnly && action.Response.Shape == "" {
 			t.Fatalf("%s missing response shape", action.Name)
 		}
+		if action.Response.Shape == "composite" {
+			t.Fatalf("%s uses the removed composite response shape", action.Name)
+		}
+	}
+}
+
+func TestCostsContractsAreFlattened(t *testing.T) {
+	list, ok := LookupAction("get_costs")
+	if !ok {
+		t.Fatal("get_costs missing from registry")
+	}
+	if list.Response.Shape != "array" {
+		t.Fatalf("get_costs shape = %q, want array", list.Response.Shape)
+	}
+	if list.Response.AggregatePath != "total" {
+		t.Fatalf("get_costs aggregate_path = %q, want total", list.Response.AggregatePath)
+	}
+	total, ok := LookupAction("get_costs_total")
+	if !ok {
+		t.Fatal("get_costs_total missing from registry")
+	}
+	if total.Response.Shape != "object" {
+		t.Fatalf("get_costs_total shape = %q, want object", total.Response.Shape)
+	}
+	if total.Response.AggregatePath != "" {
+		t.Fatalf("get_costs_total should not declare an aggregate_path, got %q", total.Response.AggregatePath)
 	}
 }
 
@@ -44,8 +70,8 @@ func TestResponseContractsMatchCurrentDocs(t *testing.T) {
 		fields []string
 	}{
 		{"get_webhooks", "array", []string{"events", "status", "projects"}},
-		{"get_costs", "composite", []string{"comment", "time", "money", "is_timer", "user_from", "task", "total"}},
-		{"get_costs_total", "composite", []string{"total"}},
+		{"get_costs", "array", []string{"comment", "time", "money", "is_timer", "user_from", "task"}},
+		{"get_costs_total", "object", []string{"total"}},
 		{"get_timers", "array", []string{"date_started", "user_from", "task"}},
 		{"get_my_timer", "object", []string{"date_started", "task"}},
 		{"get_users_schedule", "object", []string{"schedule", "group", "department"}},

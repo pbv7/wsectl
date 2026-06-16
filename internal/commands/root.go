@@ -544,6 +544,7 @@ func (s *state) actionOutput(action string, clientInfo clientResult, resp *works
 		return output.Envelope{}, output.Options{}, err
 	}
 	env := output.SuccessWithContract(action, clientInfo.profileName, clientInfo.profile.AccountURL, data, spec.Response)
+	env.Meta.Aggregate = resp.Aggregate(spec.Response)
 	copyTruncationWarnings(&env, fullEnv)
 	if limited {
 		env.Meta.Warnings = append(env.Meta.Warnings, "Client-side --limit was applied; output contains only the first requested records.")
