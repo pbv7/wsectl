@@ -311,6 +311,19 @@ authoritative for wire behavior and documents known normalizations.
 - `wsectl tasks search --query TEXT` sends an escaped Worksection `filter`, not an undocumented `search` parameter.
 - `wsectl costs ... --timer true` sends `is_timer=true`.
 - `wsectl files images` filters client-side after `get_files`.
+- `wsectl costs list` returns the cost entries as a JSON array at `data`, with the server-side summary in `meta.aggregate`. `wsectl costs total`
+  returns its aggregate bundle (`total`, plus optional `projects`/`tasks` with `--extra`) as a plain object at `data`.
+- `wsectl projects events --period` accepts `<N>m|h|d` — minutes, hours, or days (e.g. `30m`, `24h`, `7d`). Weeks, bare numbers, and words are
+  rejected client-side; the server additionally caps the value per unit.
+- `wsectl tasks search` needs at least one search dimension: `--query`, `--filter`, `--project`, `--task`, `--assignee`, or `--author`.
+  `--status` and `--extra` are modifiers, not search criteria, and fail on their own.
+- `wsectl tasks search --filter` supports `name` and the date fields `dateadd`, `datestart`, `dateend`, `dateclose` (the response-field forms
+  `date_added`/`date_closed` are also accepted) with operators `has`, `<`, `>`, and `and` — enabling server-side date-range filtering, e.g.
+  `--filter "dateadd > '01.06.2026' and dateadd < '12.06.2026'"`. Unsupported fields such as `status`, `tag`, or `priority` make the server reject the
+  filter with a misleading `Field is required: filter`.
+- Worksection value shapes to expect: `priority` is a string (e.g. `"5"`); `tags` is a `{id: name}` map and appears only on `tasks get`; an unassigned
+  task has `user_to = {"id": "1", "email": "NOONE", "name": "..."}` (sometimes labeled "Anyone") — treat id `1` as unassigned. A task's
+  `date_start`/`date_end`/`date_closed` are present only when that date is set.
 - Live probes showed query-parameter POST works, JSON request bodies work for selected OAuth API reads, and `application/x-www-form-urlencoded` API
   bodies return `invalid JSON`. This build does not use form-encoded API bodies.
 

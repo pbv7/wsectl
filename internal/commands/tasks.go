@@ -15,7 +15,7 @@ func newTasksCommand(s *state) *cobra.Command {
 	})
 	all.Long = "List all account tasks. Worksection can cap large responses at 10000 records; check meta.truncated and meta.warnings."
 	all.Example = "wsectl tasks all --extra text,files --json --out /tmp/tasks.json"
-	all.Flags().StringVar(&status, "status", "", "Task status: active or all; completed tasks use `wsectl tasks search --status done`")
+	all.Flags().StringVar(&status, "status", "", "Task status: active or all (for completed tasks use: tasks search --status done)")
 	all.Flags().StringVar(&extra, "extra", "", "Extra fields: text, files, comments, relations, subtasks, subscribers")
 	_ = all.RegisterFlagCompletionFunc("status", completeValues("active", "all"))
 	_ = all.RegisterFlagCompletionFunc("extra", commaValueCompletion("text", "files", "comments", "relations", "subtasks", "subscribers"))
@@ -25,7 +25,7 @@ func newTasksCommand(s *state) *cobra.Command {
 		return map[string]string{"id_project": project, "filter": taskListFilter(listStatus), "extra": listExtra}
 	})
 	list.Flags().StringVar(&project, "project", "", "Project ID")
-	list.Flags().StringVar(&listStatus, "status", "", "Task status: active or all; completed tasks use `wsectl tasks search --status done`")
+	list.Flags().StringVar(&listStatus, "status", "", "Task status: active or all (for completed tasks use: tasks search --status done)")
 	list.Flags().StringVar(&listExtra, "extra", "", "Extra fields")
 	_ = list.RegisterFlagCompletionFunc("status", completeValues("active", "all"))
 	_ = list.RegisterFlagCompletionFunc("extra", commaValueCompletion("text", "files", "comments", "relations", "subtasks", "subscribers"))

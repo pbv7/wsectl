@@ -13,7 +13,7 @@ wsectl users schedule --start 01.05.2026 --end 31.05.2026 --json
 ```bash
 wsectl projects list --status active --extra text,options,users --json
 wsectl projects get 123 --extra text,users --json
-wsectl projects events --project 123 --period month --json
+wsectl projects events --project 123 --period 7d --json
 ```
 
 ## Tasks

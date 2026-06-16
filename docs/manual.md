@@ -99,7 +99,7 @@ wsectl me --json
 wsectl users list --json
 wsectl users groups --json
 wsectl projects list --status active --extra text,options,users --json
-wsectl projects events --project 123 --period month --json
+wsectl projects events --project 123 --period 7d --json
 wsectl tasks all --status active --extra text,files --json --out /tmp/tasks.json
 wsectl tasks list --project 123 --extra text,comments --json
 wsectl tasks search --query "invoice" --json
