@@ -74,12 +74,15 @@ changelog:
   groups:
     # goreleaser matches group regexps against the SHA-prefixed line
     # ("<sha>[:] <subject>"), so each regexp skips the SHA with an explicit
-    # delimiter and then anchors the conventional type. Anchoring after the
-    # delimiter (rather than a lazy ".*?") prevents a substring such as the
-    # "fix" in "hotfix"/"prefix" from misclassifying a non-conventional
-    # subject. Breaking changes match first (any type with a "!"), so a
-    # breaking commit surfaces at the top instead of in its type group;
-    # goreleaser assigns each commit to the first matching group.
+    # delimiter and then anchors the type right after it — not a lazy ".*?",
+    # which would let a type match as a substring (e.g. the "fix" in "prefix").
+    # The Breaking group matches first, on a fixed list of conventional types
+    # carrying a "!". The closed list is intentional rather than an open \w+
+    # token: it already covers every type this repo uses, and an open token
+    # would reclassify non-standard single-word subjects (e.g. "hotfix!:") as
+    # breaking. If a new type is ever adopted (e.g. "security"), add it here.
+    # goreleaser assigns each commit to the first matching group; the named
+    # groups below stay literal (feat/fix/...).
     - title: '⚠️ Breaking Changes'
       regexp: '^[0-9a-f]+:?\s+(feat|fix|perf|refactor|build|chore|ci|docs|test|style|revert)(\([^)]+\))?!:.+$'
       order: 0
