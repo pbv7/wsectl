@@ -286,7 +286,12 @@ func validateProvidedParam(action, name, value string, knownParams map[string]Pa
 
 func enumValidationError(action, name, value string, enum []string) error {
 	if (action == "get_tasks" || action == "get_all_tasks") && name == "filter" && value == "done" {
-		return UsageError("completed tasks are not available through %s; use `wsectl tasks search` with a search dimension, e.g. `wsectl tasks search --project ID --status done`", action)
+		// Prefer the user-facing command name over the raw API action.
+		cmd := action
+		if spec, ok := LookupAction(action); ok && len(spec.CommandPaths) > 0 {
+			cmd = spec.CommandPaths[0]
+		}
+		return UsageError("completed tasks are not available through `%s`; use `wsectl tasks search` with a search dimension, e.g. `wsectl tasks search --project ID --status done`", cmd)
 	}
 	return UsageError("parameter %q for action %s must be one of: %s", name, action, strings.Join(enum, ", "))
 }
