@@ -126,6 +126,58 @@ func TestValidateActionKnownMappings(t *testing.T) {
 	}
 }
 
+func TestSearchTasksRequiresASearchDimension(t *testing.T) {
+	spec, _ := LookupAction("search_tasks")
+	if len(spec.AnyOf) == 0 {
+		t.Fatal("search_tasks should declare an any_of search-dimension requirement")
+	}
+	if err := ValidateAction("search_tasks", map[string]string{"status": "all"}, false); err == nil {
+		t.Fatal("search_tasks with only status (a modifier) should fail validation")
+	}
+	if err := ValidateAction("search_tasks", map[string]string{"extra": "text"}, false); err == nil {
+		t.Fatal("search_tasks with only extra (a modifier) should fail validation")
+	}
+	if err := ValidateAction("search_tasks", map[string]string{"id_project": "1"}, false); err != nil {
+		t.Fatalf("search_tasks with id_project should pass: %v", err)
+	}
+}
+
+func TestGetEventsPeriodPatternValidation(t *testing.T) {
+	// Valid units are minutes, hours, days; weeks/words/bare numbers are not.
+	for _, bad := range []string{"week", "month", "all", "7", "2w", "1y", "0d", "01h"} {
+		if err := ValidateAction("get_events", map[string]string{"period": bad}, false); err == nil {
+			t.Fatalf("period %q should fail client-side validation", bad)
+		}
+	}
+	for _, good := range []string{"30m", "1h", "24h", "7d"} {
+		if err := ValidateAction("get_events", map[string]string{"period": good}, false); err != nil {
+			t.Fatalf("period %q should pass: %v", good, err)
+		}
+	}
+}
+
+func TestTaskFieldsIncludePageAndDocumentConditionalFields(t *testing.T) {
+	for _, action := range []string{"get_tasks", "search_tasks"} {
+		spec, _ := LookupAction(action)
+		byName := map[string]FieldSpec{}
+		for _, f := range spec.Response.ItemShape {
+			byName[f.Name] = f
+		}
+		for _, f := range []string{"page", "date_closed"} {
+			if _, ok := byName[f]; !ok {
+				t.Fatalf("%s item shape missing %q", action, f)
+			}
+		}
+		// The conditional fields must carry a schema-visible description so
+		// downstream agents do not treat them as guaranteed.
+		for _, f := range []string{"date_start", "date_end", "date_closed"} {
+			if byName[f].Description == "" {
+				t.Fatalf("%s field %q must document its conditional presence in the schema", action, f)
+			}
+		}
+	}
+}
+
 func TestAdminHashIsStable(t *testing.T) {
 	got := AdminHash("get_tasks", map[string]string{"id_project": "26"}, "7776461cd931e7b1c8e9632ff8e979ce")
 	if got == "" || len(got) != 32 {

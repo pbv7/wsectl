@@ -50,6 +50,13 @@ func newTasksCommand(s *state) *cobra.Command {
 		if query != "" && filter != "" {
 			return nil, worksection.UsageError("--query and --filter cannot be used together")
 		}
+		// search_tasks requires at least one search dimension upstream; without
+		// one it fails with a cryptic "At least one of fields required". Fail
+		// fast with a flag-named message instead. Skipped for --schema, which
+		// short-circuits before the request and takes no flags.
+		if !s.schema && query == "" && filter == "" && searchProject == "" && searchTask == "" && assignee == "" && author == "" {
+			return nil, worksection.UsageError("tasks search needs at least one of --query, --filter, --project, --task, --assignee, or --author (--status and --extra are modifiers, not search criteria)")
+		}
 		params := map[string]string{
 			"filter":          filter,
 			"id_project":      searchProject,

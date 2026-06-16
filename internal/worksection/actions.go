@@ -2,11 +2,12 @@ package worksection
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
 
-const ContractVersion = "2026-06-16.1"
+const ContractVersion = "2026-06-16.2"
 
 type ParamType string
 
@@ -19,11 +20,19 @@ const (
 
 // ParamSpec describes one Worksection API parameter.
 type ParamSpec struct {
-	Name        string    `json:"name"`
-	Type        ParamType `json:"type"`
-	Required    bool      `json:"required,omitempty"`
-	Enum        []string  `json:"enum,omitempty"`
-	Description string    `json:"description,omitempty"`
+	Name     string    `json:"name"`
+	Type     ParamType `json:"type"`
+	Required bool      `json:"required,omitempty"`
+	Enum     []string  `json:"enum,omitempty"`
+	// Pattern, when set, is a regular expression the value must match. It is
+	// validated client-side so callers get a clear error instead of a
+	// misleading Worksection rejection (e.g. period must be <N>m|h|d). The
+	// pattern checks format only; the server still enforces value ranges.
+	Pattern     string `json:"pattern,omitempty"`
+	Description string `json:"description,omitempty"`
+	// re is the compiled Pattern, set by withPattern so validation reuses it
+	// instead of recompiling per call. Unexported, so it is not serialized.
+	re *regexp.Regexp
 }
 
 // FieldSpec is an advisory response field contract. It is intentionally not a
@@ -108,7 +117,7 @@ var readActions = map[string]Action{
 
 	"get_events": action("get_events", "Get project event history", []string{"oauth2", "admin_token"}, []string{"projects_read"},
 		responseArray("data", eventFields()), cols("action", "date_added", "object", "user_from"), commands("wsectl projects events"),
-		params(param("period", ParamString, true, nil, "Required Worksection period value"), param("id_project", ParamString, false, nil, "Optional project ID"))),
+		params(withPattern(param("period", ParamString, true, nil, "Relative period: <N>m|h|d — minutes, hours, or days (e.g. 30m, 24h, 7d)."), `^[1-9]\d*[mhd]$`), param("id_project", ParamString, false, nil, "Optional project ID"))),
 
 	"get_all_tasks": taskListAction("get_all_tasks", "List all account tasks", "wsectl tasks all"),
 	"get_tasks":     taskListAction("get_tasks", "List project tasks", "wsectl tasks list", param("id_project", ParamString, true, nil, "Project ID")),
@@ -119,7 +128,10 @@ var readActions = map[string]Action{
 	"search_tasks": action("search_tasks", "Search tasks", []string{"oauth2", "admin_token"}, []string{"tasks_read"},
 		responseArray("data", taskFields()), cols("id", "name", "status", "date_end"), commands("wsectl tasks search"),
 		params(param("filter", ParamString, false, nil, "Advanced Worksection task filter"), param("id_project", ParamString, false, nil, "Project ID"), param("id_task", ParamString, false, nil, "Task ID"), param("email_user_to", ParamString, false, nil, "Assignee email"), param("email_user_from", ParamString, false, nil, "Author email"), param("status", ParamString, false, []string{"active", "done", "all"}, "Task status"), param("extra", ParamCSV, false, []string{"text", "files", "comments", "relations", "subtasks", "subscribers"}, "Comma-separated extras")),
-		notes("The CLI translates --query TEXT to filter=name has 'TEXT'. The raw API parameter is filter, not search.")),
+		anyOf("filter", "id_project", "id_task", "email_user_to", "email_user_from"),
+		notes("The CLI translates --query TEXT to filter=name has 'TEXT'. The raw API parameter is filter, not search.",
+			"search_tasks needs at least one of filter, id_project, id_task, email_user_to, email_user_from; status and extra are modifiers, not search criteria.",
+			"The advanced filter grammar supports name and the date fields dateadd, datestart, dateend, dateclose (the underscore response-field forms date_added/date_closed are also accepted) with operators has, <, >, and (e.g. \"dateadd > '01.06.2026' and dateadd < '12.06.2026'\"), enabling server-side date-range filtering. Unsupported fields such as status, tag, or priority make Worksection reject the filter with a misleading \"Field is required: filter\".")),
 
 	"get_comments": action("get_comments", "List task comments", []string{"oauth2", "admin_token"}, []string{"comments_read"},
 		responseArray("data", fields("id:string", "text:string", "date_added:string", "user:object", "files:array")), cols("id", "date_added", "user", "text"), commands("wsectl comments list"),
@@ -255,10 +267,21 @@ func validateProvidedParam(action, name, value string, knownParams map[string]Pa
 		}
 		return UsageError("parameter %q is not documented for action %s", name, action)
 	}
-	if len(p.Enum) == 0 || enumContainsCSV(p.Enum, value, p.Type == ParamCSV) {
-		return nil
+	if len(p.Enum) > 0 && !enumContainsCSV(p.Enum, value, p.Type == ParamCSV) {
+		return enumValidationError(action, name, value, p.Enum)
 	}
-	return enumValidationError(action, name, value, p.Enum)
+	if p.Pattern != "" {
+		matched := false
+		if p.re != nil {
+			matched = p.re.MatchString(value)
+		} else {
+			matched, _ = regexp.MatchString(p.Pattern, value)
+		}
+		if !matched {
+			return UsageError("parameter %q for action %s is invalid (%q); expected %s", name, action, value, p.Description)
+		}
+	}
+	return nil
 }
 
 func enumValidationError(action, name, value string, enum []string) error {
@@ -425,7 +448,26 @@ func webhookFields() []FieldSpec {
 }
 
 func taskFields() []FieldSpec {
-	return fields("id:string", "name:string", "status:string", "project:object", "user_to:object", "user_from:object", "date_added:string", "date_start:string", "date_end:string", "priority:string")
+	// Conditional fields carry a schema-visible description so agents inspecting
+	// item_shape know presence varies by task state, rather than treating every
+	// field as guaranteed.
+	return describe(fields("id:string", "name:string", "status:string", "project:object", "user_to:object", "user_from:object", "date_added:string", "date_start:string", "date_end:string", "date_closed:string", "page:string", "priority:string"),
+		map[string]string{
+			"project":     "Omitted when results are already scoped to a project (e.g. tasks list/search by project).",
+			"date_start":  "Present only when the task has a start date set.",
+			"date_end":    "Present only when the task has a deadline set.",
+			"date_closed": "Present only on closed (done) tasks.",
+		})
+}
+
+// describe sets Description on the named fields, leaving others unchanged.
+func describe(fs []FieldSpec, byName map[string]string) []FieldSpec {
+	for i := range fs {
+		if d, ok := byName[fs[i].Name]; ok {
+			fs[i].Description = d
+		}
+	}
+	return fs
 }
 
 func fileFields() []FieldSpec {
@@ -453,6 +495,19 @@ func notes(values ...string) func(*Action) {
 
 func exactlyOne(names ...string) func(*Action) {
 	return func(a *Action) { a.ExactlyOneOf = append(a.ExactlyOneOf, names...) }
+}
+
+func anyOf(names ...string) func(*Action) {
+	return func(a *Action) { a.AnyOf = append(a.AnyOf, names) }
+}
+
+func withPattern(p ParamSpec, pattern string) ParamSpec {
+	// MustCompile at package-init time: a malformed pattern panics immediately
+	// (in tests / at startup), and the compiled form is cached for reuse so
+	// validation does not recompile on every call.
+	p.Pattern = pattern
+	p.re = regexp.MustCompile(pattern)
+	return p
 }
 
 func commands(paths ...string) []string { return paths }
