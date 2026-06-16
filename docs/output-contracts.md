@@ -77,14 +77,19 @@ Fields:
 - `meta.profile`: selected profile name.
 - `meta.account_url`: target Worksection account.
 - `meta.contract_version`: version of the static response contract used by the binary.
-- `meta.response_shape`: advisory shape for `data`: `array`, `object`, `composite`, `binary`, or `unknown`.
+- `meta.response_shape`: advisory shape for `data`: `array`, `object`, `binary`, or `unknown`.
+- `meta.aggregate`: optional server-side summary that sits beside array records (e.g. `costs list`'s `total`); omitted when an action has none.
 - `meta.count`: best-effort top-level item count.
 - `meta.truncated`: true when the result may have hit a known API cap.
 - `meta.warnings`: non-fatal completeness or behavior warnings.
 
-Composite Worksection responses preserve their documented object fields instead of dropping everything except `data`. JSON and YAML keep aggregate
-siblings such as `total`, `projects`, and `tasks`. Row-oriented modes (`--ndjson`, table output, `--limit`, and `--fields`) use the static contract's
-`data_path` and `count_path` so list commands such as `costs list` still operate on primary rows.
+Every command places its primary payload directly at `data`: an array for list
+commands, an object for single-resource commands. When Worksection returns a
+summary alongside the records, `data` stays the plain array and the summary is
+surfaced in `meta.aggregate` (JSON and YAML both render it structurally). For
+example `costs list` puts cost entries at `data` and the `total` summary at
+`meta.aggregate`, while `costs total` returns the aggregate bundle (`total`,
+optional `projects`/`tasks`) directly as its `data` object.
 
 ## Static Response Contracts
 

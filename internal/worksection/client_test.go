@@ -390,13 +390,32 @@ func TestClientClassifiesHTTP429(t *testing.T) {
 	}
 }
 
-func TestResponseOutputDataPreservesCompositeAndObjectBodies(t *testing.T) {
-	composite, err := ParseResponse([]byte(`{"status":"ok","data":[{"id":"1"}],"total":{"money":"10"}}`))
+func TestResponseOutputDataAndAggregate(t *testing.T) {
+	// costs list: entries are the primary payload (array at data); the sibling
+	// "total" summary is lifted out via Aggregate, never folded into data.
+	costs, err := ParseResponse([]byte(`{"status":"ok","data":[{"id":"1"}],"total":{"money":"10"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := composite.OutputData("get_costs"); !strings.Contains(string(got), `"total"`) || strings.Contains(string(got), `"status"`) {
-		t.Fatalf("composite output data = %s", got)
+	if got := costs.OutputData("get_costs"); string(got) != `[{"id":"1"}]` {
+		t.Fatalf("get_costs output data = %s, want the entries array", got)
+	}
+	listSpec, _ := LookupAction("get_costs")
+	if agg := costs.Aggregate(listSpec.Response); !strings.Contains(string(agg), `"money":"10"`) {
+		t.Fatalf("get_costs aggregate = %s, want the total object", agg)
+	}
+	// costs total: no "data" key upstream; the {total, ...} bundle minus the
+	// status envelope is the output data, and there is no separate aggregate.
+	total, err := ParseResponse([]byte(`{"status":"ok","total":{"money":"10"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := total.OutputData("get_costs_total"); !strings.Contains(string(got), `"total"`) || strings.Contains(string(got), `"status"`) {
+		t.Fatalf("get_costs_total output data = %s", got)
+	}
+	totalSpec, _ := LookupAction("get_costs_total")
+	if agg := total.Aggregate(totalSpec.Response); agg != nil {
+		t.Fatalf("get_costs_total should expose no aggregate, got %s", agg)
 	}
 	object, err := ParseResponse([]byte(`{"status":"ok","url":"https://example.test/file.bin","name":"file.bin"}`))
 	if err != nil {

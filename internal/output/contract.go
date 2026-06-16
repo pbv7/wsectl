@@ -6,72 +6,10 @@ import (
 	"github.com/pbv7/wsectl/internal/worksection"
 )
 
-func primaryData(data json.RawMessage, contract worksection.ResponseContract) json.RawMessage {
-	if !isCompositeContract(contract) {
-		return data
-	}
-	if raw, ok := rawAtPath(data, contractDataPath(contract)); ok {
-		return raw
-	}
+// primaryData returns the records payload used for count, limit, and field
+// selection. The composite response shape was removed, so every action's data
+// is already its primary payload; this stays as a single seam the renderers
+// (count, limit, ndjson, table) share, in case a future shape needs to unwrap.
+func primaryData(data json.RawMessage, _ worksection.ResponseContract) json.RawMessage {
 	return data
-}
-
-func isCompositeContract(contract worksection.ResponseContract) bool {
-	return contract.Shape == "composite" && contractDataPath(contract) != ""
-}
-
-func contractDataPath(contract worksection.ResponseContract) string {
-	if contract.CountPath != "" {
-		return contract.CountPath
-	}
-	return contract.DataPath
-}
-
-func rawAtPath(raw json.RawMessage, path string) (json.RawMessage, bool) {
-	parts := splitPath(path)
-	if len(parts) == 0 {
-		return raw, true
-	}
-	current := raw
-	for _, part := range parts {
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(current, &obj); err != nil || obj == nil {
-			return nil, false
-		}
-		next, ok := obj[part]
-		if !ok {
-			return nil, false
-		}
-		current = next
-	}
-	return current, true
-}
-
-func setRawAtPath(raw json.RawMessage, path string, value json.RawMessage) (json.RawMessage, error) {
-	parts := splitPath(path)
-	if len(parts) == 0 {
-		return value, nil
-	}
-	return setRawAtParts(raw, parts, value)
-}
-
-func setRawAtParts(raw json.RawMessage, parts []string, value json.RawMessage) (json.RawMessage, error) {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return nil, err
-	}
-	if len(parts) == 1 {
-		obj[parts[0]] = value
-		return json.Marshal(obj)
-	}
-	child, ok := obj[parts[0]]
-	if !ok {
-		child = json.RawMessage(`{}`)
-	}
-	updated, err := setRawAtParts(child, parts[1:], value)
-	if err != nil {
-		return nil, err
-	}
-	obj[parts[0]] = updated
-	return json.Marshal(obj)
 }

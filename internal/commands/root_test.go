@@ -1065,32 +1065,34 @@ func TestCostTimerFlagSendsIsTimer(t *testing.T) {
 	}
 }
 
-func TestCostsListCompositeJSONCountsPrimaryRows(t *testing.T) {
-	setupCompositeCostServer(t)
+func TestCostsListJSONIsArrayWithAggregate(t *testing.T) {
+	setupCostServer(t)
 	out, err := execute("costs", "list", "--json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var env struct {
-		Status string `json:"status"`
-		Data   struct {
-			Data  []map[string]any `json:"data"`
-			Total map[string]any   `json:"total"`
-		} `json:"data"`
-		Meta struct {
-			Count int `json:"count"`
+		Status string           `json:"status"`
+		Data   []map[string]any `json:"data"`
+		Meta   struct {
+			ResponseShape string         `json:"response_shape"`
+			Count         int            `json:"count"`
+			Aggregate     map[string]any `json:"aggregate"`
 		} `json:"meta"`
 	}
 	if err := json.Unmarshal([]byte(out), &env); err != nil {
 		t.Fatalf("invalid costs json: %v\n%s", err, out)
 	}
-	if env.Status != "ok" || env.Meta.Count != 2 || len(env.Data.Data) != 2 || env.Data.Total["money"] != "30" {
+	if env.Status != "ok" || env.Meta.ResponseShape != "array" || env.Meta.Count != 2 || len(env.Data) != 2 {
 		t.Fatalf("unexpected costs envelope: %#v", env)
+	}
+	if env.Meta.Aggregate["money"] != "30" {
+		t.Fatalf("meta.aggregate total missing: %#v", env.Meta)
 	}
 }
 
-func TestCostsListCompositeNDJSONUsesPrimaryRows(t *testing.T) {
-	setupCompositeCostServer(t)
+func TestCostsListNDJSONStreamsEntryRows(t *testing.T) {
+	setupCostServer(t)
 	out, err := execute("costs", "list", "--ndjson")
 	if err != nil {
 		t.Fatal(err)
@@ -1101,26 +1103,79 @@ func TestCostsListCompositeNDJSONUsesPrimaryRows(t *testing.T) {
 	}
 }
 
-func TestCostsListCompositeLimitAndFieldsUsePrimaryRows(t *testing.T) {
-	setupCompositeCostServer(t)
+func TestCostsListLimitAndFieldsUseEntryRows(t *testing.T) {
+	setupCostServer(t)
 	limited, err := execute("costs", "list", "--limit", "1", "--json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(limited, `"id": "2"`) || !strings.Contains(limited, `"total"`) || !strings.Contains(limited, "Client-side --limit") {
+	if strings.Contains(limited, `"id": "2"`) || !strings.Contains(limited, "Client-side --limit") {
 		t.Fatalf("unexpected limited costs output:\n%s", limited)
 	}
+	if !strings.Contains(limited, `"aggregate"`) {
+		t.Fatalf("limit dropped meta.aggregate:\n%s", limited)
+	}
 
-	setupCompositeCostServer(t)
+	setupCostServer(t)
 	selected, err := execute("costs", "list", "--fields", "id,task.name", "--json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(selected, `"task"`) || !strings.Contains(selected, `"Task A"`) || !strings.Contains(selected, `"total"`) {
+	if !strings.Contains(selected, `"task"`) || !strings.Contains(selected, `"Task A"`) {
 		t.Fatalf("selected costs output missing expected fields:\n%s", selected)
 	}
 	if strings.Contains(selected, "Design") || strings.Contains(selected, `"money": "10"`) {
 		t.Fatalf("selected costs output kept unselected row fields:\n%s", selected)
+	}
+	if !strings.Contains(selected, `"aggregate"`) {
+		t.Fatalf("field selection dropped meta.aggregate:\n%s", selected)
+	}
+}
+
+func TestCostsTotalEnvelopeIsAggregateObject(t *testing.T) {
+	setupCostServer(t)
+	out, err := execute("costs", "total", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env struct {
+		Status string                     `json:"status"`
+		Data   map[string]json.RawMessage `json:"data"`
+		Meta   struct {
+			ResponseShape string          `json:"response_shape"`
+			Aggregate     json.RawMessage `json:"aggregate"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("invalid costs total json: %v\n%s", err, out)
+	}
+	if env.Status != "ok" || env.Meta.ResponseShape != "object" {
+		t.Fatalf("status/shape = %q/%q, want ok/object", env.Status, env.Meta.ResponseShape)
+	}
+	if _, ok := env.Data["total"]; !ok {
+		t.Fatalf("costs total data missing total bundle: %v", env.Data)
+	}
+	if _, ok := env.Data["status"]; ok {
+		t.Fatalf("status envelope leaked into data: %v", env.Data)
+	}
+	if len(env.Meta.Aggregate) != 0 {
+		t.Fatalf("costs total should expose no meta.aggregate, got %s", env.Meta.Aggregate)
+	}
+}
+
+func TestCostsTotalTableShowsAggregateNotBlankEntryColumns(t *testing.T) {
+	setupCostServer(t)
+	out, err := execute("costs", "total", "--table")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The aggregate object must render its own keys, not be force-projected
+	// onto the empty list columns (id/comment/time/...).
+	if !strings.Contains(out, "TOTAL") || !strings.Contains(out, "30") {
+		t.Fatalf("costs total table did not render the aggregate:\n%s", out)
+	}
+	if strings.Contains(out, "COMMENT") || strings.Contains(out, "IS_TIMER") {
+		t.Fatalf("costs total table used list entry columns:\n%s", out)
 	}
 }
 
@@ -1577,20 +1632,27 @@ func TestGeneratedCommandReferenceIsCurrent(t *testing.T) {
 	}
 }
 
-func setupCompositeCostServer(t *testing.T) {
+func setupCostServer(t *testing.T) {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Query().Get("action") != "get_costs" {
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		switch action := r.URL.Query().Get("action"); action {
+		case "get_costs":
+			// list: entries array plus a sibling "total" summary.
+			_, _ = w.Write([]byte(`{
+				"status":"ok",
+				"data":[
+					{"id":"1","comment":"Design","money":"10","task":{"name":"Task A"}},
+					{"id":"2","comment":"Build","money":"20","task":{"name":"Task B"}}
+				],
+				"total":{"money":"30"}
+			}`))
+		case "get_costs_total":
+			// total: no "data" key, only the aggregate bundle.
+			_, _ = w.Write([]byte(`{"status":"ok","total":{"money":"30"}}`))
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
+			w.WriteHeader(http.StatusBadRequest)
 		}
-		_, _ = w.Write([]byte(`{
-			"status":"ok",
-			"data":[
-				{"id":"1","comment":"Design","money":"10","task":{"name":"Task A"}},
-				{"id":"2","comment":"Build","money":"20","task":{"name":"Task B"}}
-			],
-			"total":{"money":"30"}
-		}`))
 	}))
 	t.Cleanup(server.Close)
 	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))

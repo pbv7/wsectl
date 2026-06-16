@@ -481,7 +481,7 @@ Read costs
 
 **Worksection actions:** `get_costs`
 
-- `get_costs` response shape: `composite`; count path: `data`.
+- `get_costs` response shape: `array`; count path: `data`.
 - `get_costs` compatibility: The public CLI flag is --timer, but the Worksection API parameter is is_timer.
 
 **Output modes:** `auto`, `json`, `yaml`, `table`, `ndjson`, `raw`
@@ -521,7 +521,7 @@ Read costs
 
 **Worksection actions:** `get_costs_total`
 
-- `get_costs_total` response shape: `composite`; count path: `data`.
+- `get_costs_total` response shape: `object`; count path: `data`.
 - `get_costs_total` compatibility: The public CLI flag is --timer, but the Worksection API parameter is is_timer.
 
 **Output modes:** `auto`, `json`, `yaml`, `table`, `ndjson`, `raw`

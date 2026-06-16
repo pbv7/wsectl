@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const ContractVersion = "2026-06-07.1"
+const ContractVersion = "2026-06-16.1"
 
 type ParamType string
 
@@ -41,6 +41,7 @@ type ResponseContract struct {
 	Shape             string                 `json:"response_shape"`
 	DataPath          string                 `json:"data_path"`
 	CountPath         string                 `json:"count_path"`
+	AggregatePath     string                 `json:"aggregate_path,omitempty"`
 	ItemShape         []FieldSpec            `json:"item_shape,omitempty"`
 	ConditionalFields map[string][]FieldSpec `json:"conditional_fields,omitempty"`
 	Notes             []string               `json:"notes,omitempty"`
@@ -355,15 +356,30 @@ func tagGroupAction(name, description, commandPath string) Action {
 }
 
 func costAction(name, description, commandPath string, list bool) Action {
-	shape := responseComposite("data", costFields(),
-		conditional("extra=projects", fields("projects:object")),
-		conditional("extra=tasks", fields("tasks:object")),
-		conditional("extra=tasks_top_level", fields("tasks:object")))
+	var shape ResponseContract
+	// Table columns are mode-specific. costs list has entry rows; costs total is
+	// an aggregate object, so it gets no curated columns — forcing the entry
+	// columns onto a {total, ...} object would project a blank table.
+	var tableCols []string
 	if list {
-		shape = responseComposite("data", costFields())
+		// costs list returns the cost entries as an array at data, with a
+		// server-side summary the API places in a sibling "total" object. The
+		// entries are the primary payload; the summary is lifted into
+		// meta.aggregate via AggregatePath so data stays a plain array.
+		shape = responseArray("data", costEntryFields())
+		shape.AggregatePath = "total"
+		tableCols = cols("id", "comment", "time", "money", "date", "is_timer")
+	} else {
+		// costs total is a pure aggregate response: data is the {total, ...}
+		// bundle, with optional per-project / per-task breakdowns via extras.
+		shape = responseObject("data", costTotalFields(),
+			conditional("extra=projects", fields("projects:object")),
+			conditional("extra=tasks", fields("tasks:object")),
+			conditional("extra=tasks_top_level", fields("tasks:object")))
+		tableCols = cols()
 	}
 	return action(name, description, []string{"oauth2", "admin_token"}, []string{"costs_read"},
-		shape, cols("id", "comment", "time", "money", "date", "is_timer"), commands(commandPath),
+		shape, tableCols, commands(commandPath),
 		params(param("id_project", ParamString, false, nil, "Project ID"), param("id_task", ParamString, false, nil, "Task ID"), param("datestart", ParamDate, false, nil, "Start date DD.MM.YYYY"), param("dateend", ParamDate, false, nil, "End date DD.MM.YYYY"), param("is_timer", ParamBool, false, []string{"true", "false"}, "Filter timer costs"), param("filter", ParamString, false, nil, "Worksection filter"), param("extra", ParamCSV, false, nil, "Comma-separated extras")),
 		notes("The public CLI flag is --timer, but the Worksection API parameter is is_timer."))
 }
@@ -388,8 +404,12 @@ func tagGroupFields() []FieldSpec {
 	return fields("id:string", "title:string", "name:string", "type:string", "access:string")
 }
 
-func costFields() []FieldSpec {
-	return fields("id:string", "comment:string", "time:string", "money:string", "date:string", "is_timer:boolean", "user_from:object", "task:object", "data:array", "total:object")
+func costEntryFields() []FieldSpec {
+	return fields("id:string", "comment:string", "time:string", "money:string", "date:string", "is_timer:boolean", "user_from:object", "task:object")
+}
+
+func costTotalFields() []FieldSpec {
+	return fields("total:object")
 }
 
 func timerFields(includeUser bool) []FieldSpec {
@@ -444,10 +464,6 @@ func responseArray(path string, item []FieldSpec, conditionals ...conditionalFie
 
 func responseObject(path string, item []FieldSpec, conditionals ...conditionalFields) ResponseContract {
 	return response("object", path, path, item, conditionals...)
-}
-
-func responseComposite(path string, item []FieldSpec, conditionals ...conditionalFields) ResponseContract {
-	return response("composite", path, path, item, conditionals...)
 }
 
 func responseBinary(path string, item []FieldSpec) ResponseContract {

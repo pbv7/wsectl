@@ -79,8 +79,8 @@ JSON Schema.
 - `get_tasks` and `get_all_tasks`: completed tasks are not exposed through list filters. Use `wsectl tasks search --status done`.
 - `search_tasks`: CLI `--query TEXT` is translated to `filter=name has 'TEXT'`; the CLI does not send an undocumented `search` parameter. The
   documented `id_task` search selector is exposed as `wsectl tasks search --task TASK_ID`.
-- `get_costs` and `get_costs_total`: public `--timer` maps to API `is_timer`. Their static response contracts are composite because Worksection can
-  return top-level `total`, `projects`, or task aggregate objects alongside `data`.
+- `get_costs` and `get_costs_total`: public `--timer` maps to API `is_timer`. `costs list` returns the cost entries as an array at `data` with the
+  server-side `total` summary in `meta.aggregate`; `costs total` returns the aggregate bundle (`total`, optional `projects`/`tasks`) as its `data` object.
 - `get_files`: callers must specify exactly one selector, `id_project` or `id_task`.
 - `files images`: image filtering is client-side because the Postman/live contract does not document a server-side image filter.
 - `download`: responses may be JSON URL objects, redirects, or direct binary content. Bearer credentials are forwarded only to HTTPS URLs on the
