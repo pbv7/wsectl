@@ -1201,6 +1201,40 @@ func TestTaskSearchTaskFlagSendsIDTask(t *testing.T) {
 	}
 }
 
+func TestTasksSearchWithoutDimensionFailsWithFlagNamedError(t *testing.T) {
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	out, err := execute("tasks", "search", "--extra", "text", "--json")
+	if err == nil {
+		t.Fatalf("expected usage error when no search dimension is given:\n%s", out)
+	}
+	if !strings.Contains(out, `"status": "error"`) || !strings.Contains(out, "needs at least one of --query") {
+		t.Fatalf("unexpected output:\n%s", out)
+	}
+}
+
+func TestTasksSearchSchemaSkipsDimensionPreflight(t *testing.T) {
+	// --schema must emit the contract even with no search dimension.
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	out, err := execute("tasks", "search", "--schema", "--json")
+	if err != nil {
+		t.Fatalf("schema must not trip the dimension preflight: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, `"name": "search_tasks"`) {
+		t.Fatalf("unexpected schema output:\n%s", out)
+	}
+}
+
+func TestProjectsEventsRejectsInvalidPeriodBeforeRequest(t *testing.T) {
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	out, err := execute("projects", "events", "--project", "123", "--period", "week", "--json")
+	if err == nil {
+		t.Fatalf("expected usage error for invalid period:\n%s", out)
+	}
+	if !strings.Contains(out, `"status": "error"`) || !strings.Contains(out, "period") {
+		t.Fatalf("unexpected output:\n%s", out)
+	}
+}
+
 func TestImageFiltering(t *testing.T) {
 	raw, warnings, err := filterImageFiles(json.RawMessage(`[
 		{"id":"1","name":"photo.jpg"},

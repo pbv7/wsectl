@@ -1098,7 +1098,7 @@ Get project events
 **Examples:**
 
 ```bash
-wsectl projects events --project 123 --period month --json
+wsectl projects events --project 123 --period 7d --json
 ```
 
 **Agent notes:**
@@ -1626,6 +1626,11 @@ Search tasks by simple query or advanced Worksection filter. Prefer --json for s
 
 - `search_tasks` response shape: `array`; count path: `data`.
 - `search_tasks` compatibility: The CLI translates --query TEXT to filter=name has 'TEXT'. The raw API parameter is filter, not search.
+- `search_tasks` compatibility: search_tasks needs at least one of filter, id_project, id_task, email_user_to, email_user_from; status and extra are
+  modifiers, not search criteria.
+- `search_tasks` compatibility: The advanced filter grammar supports fields name and date_added with operators has, <, >, and (e.g. "date_added >
+  '01.06.2026' and date_added < '12.06.2026'"), enabling server-side date-range filtering. Unsupported fields such as status, tag, or priority make
+  Worksection reject the filter with a misleading "Field is required: filter".
 
 **Output modes:** `auto`, `json`, `yaml`, `table`, `ndjson`, `raw`
 
