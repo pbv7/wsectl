@@ -286,7 +286,7 @@ func validateProvidedParam(action, name, value string, knownParams map[string]Pa
 
 func enumValidationError(action, name, value string, enum []string) error {
 	if (action == "get_tasks" || action == "get_all_tasks") && name == "filter" && value == "done" {
-		return UsageError("completed tasks are not available through %s; use `wsectl tasks search --status done`", action)
+		return UsageError("completed tasks are not available through %s; use `wsectl tasks search` with a search dimension, e.g. `wsectl tasks search --project ID --status done`", action)
 	}
 	return UsageError("parameter %q for action %s must be one of: %s", name, action, strings.Join(enum, ", "))
 }
