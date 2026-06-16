@@ -248,7 +248,7 @@ var commandExamples = map[string]string{
 	"wsectl profiles remove":        "wsectl profiles remove old-account",
 	"wsectl profiles show":          "wsectl profiles show default --json",
 	"wsectl profiles use":           "wsectl profiles use default",
-	"wsectl projects events":        "wsectl projects events --project 123 --period 1m --json",
+	"wsectl projects events":        "wsectl projects events --project 123 --period 7d --json",
 	"wsectl projects groups":        "wsectl projects groups --json",
 	"wsectl projects list":          "wsectl projects list --status active --json",
 	"wsectl projects team":          "wsectl projects team 123 --json",

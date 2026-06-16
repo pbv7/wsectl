@@ -143,12 +143,13 @@ func TestSearchTasksRequiresASearchDimension(t *testing.T) {
 }
 
 func TestGetEventsPeriodPatternValidation(t *testing.T) {
-	for _, bad := range []string{"week", "month", "all", "7"} {
+	// Valid units are minutes, hours, days; weeks/words/bare numbers are not.
+	for _, bad := range []string{"week", "month", "all", "7", "2w", "1y", "0d", "01h"} {
 		if err := ValidateAction("get_events", map[string]string{"period": bad}, false); err == nil {
 			t.Fatalf("period %q should fail client-side validation", bad)
 		}
 	}
-	for _, good := range []string{"7d", "14d", "2w", "1m"} {
+	for _, good := range []string{"30m", "1h", "24h", "7d"} {
 		if err := ValidateAction("get_events", map[string]string{"period": good}, false); err != nil {
 			t.Fatalf("period %q should pass: %v", good, err)
 		}

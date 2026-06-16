@@ -37,7 +37,7 @@ func newProjectsCommand(s *state) *cobra.Command {
 	})
 	events.Example = "wsectl projects events --project 123 --period 7d --json"
 	events.Flags().StringVar(&project, "project", "", "Project ID")
-	events.Flags().StringVar(&period, "period", "", "Relative period: <N>d|w|m (e.g. 7d, 2w, 1m)")
+	events.Flags().StringVar(&period, "period", "", "Relative period: <N>m|h|d (minutes/hours/days, e.g. 30m, 24h, 7d)")
 	cmd.AddCommand(events)
 	team := &cobra.Command{
 		Use:   "team PROJECT_ID",

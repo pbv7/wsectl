@@ -26,7 +26,8 @@ type ParamSpec struct {
 	Enum     []string  `json:"enum,omitempty"`
 	// Pattern, when set, is a regular expression the value must match. It is
 	// validated client-side so callers get a clear error instead of a
-	// misleading Worksection rejection (e.g. period must be <N>d|w|m).
+	// misleading Worksection rejection (e.g. period must be <N>m|h|d). The
+	// pattern checks format only; the server still enforces value ranges.
 	Pattern     string `json:"pattern,omitempty"`
 	Description string `json:"description,omitempty"`
 }
@@ -113,7 +114,7 @@ var readActions = map[string]Action{
 
 	"get_events": action("get_events", "Get project event history", []string{"oauth2", "admin_token"}, []string{"projects_read"},
 		responseArray("data", eventFields()), cols("action", "date_added", "object", "user_from"), commands("wsectl projects events"),
-		params(withPattern(param("period", ParamString, true, nil, "Relative period: <N>d|w|m (e.g. 7d, 2w, 1m)"), `^\d+[dwm]$`), param("id_project", ParamString, false, nil, "Optional project ID"))),
+		params(withPattern(param("period", ParamString, true, nil, "Relative period: <N>m|h|d — minutes, hours, or days (e.g. 30m, 24h, 7d)."), `^[1-9]\d*[mhd]$`), param("id_project", ParamString, false, nil, "Optional project ID"))),
 
 	"get_all_tasks": taskListAction("get_all_tasks", "List all account tasks", "wsectl tasks all"),
 	"get_tasks":     taskListAction("get_tasks", "List project tasks", "wsectl tasks list", param("id_project", ParamString, true, nil, "Project ID")),
@@ -493,6 +494,9 @@ func anyOf(names ...string) func(*Action) {
 }
 
 func withPattern(p ParamSpec, pattern string) ParamSpec {
+	// Compile at package-init time so a malformed pattern panics immediately
+	// (in tests / at startup) rather than silently failing validation later.
+	regexp.MustCompile(pattern)
 	p.Pattern = pattern
 	return p
 }
