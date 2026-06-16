@@ -387,12 +387,14 @@ done
 section "error envelope shapes"
 # API error (exit 6): a format-valid period that exceeds Worksection's per-unit
 # cap passes client-side validation and is rejected by the server.
-probe "events --period 999d --json" error-json 6 projects events --project "$PROJECT" --period 999d --json
-probe "events --period 999d --yaml" error-yaml 6 projects events --project "$PROJECT" --period 999d --yaml
+for fmt in json yaml; do
+  probe "events --period 999d --$fmt" "error-$fmt" 6 projects events --project "$PROJECT" --period 999d "--$fmt"
+done
 # Usage error (exit 2): a malformed period is rejected client-side before any
 # request (the <N>m|h|d pattern), so it never reaches the API.
-probe "events --period bogus --json" error-json 2 projects events --project "$PROJECT" --period bogus --json
-probe "events --period bogus --yaml" error-yaml 2 projects events --project "$PROJECT" --period bogus --yaml
+for fmt in json yaml; do
+  probe "events --period bogus --$fmt" "error-$fmt" 2 projects events --project "$PROJECT" --period bogus "--$fmt"
+done
 
 section "summary"
 printf '\n%s passed, %s failed, %s skipped\n' "$(green "$PASS")" "$(red "$FAIL")" "$(yellow "$SKIP")" >&2

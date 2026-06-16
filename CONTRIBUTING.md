@@ -151,8 +151,12 @@ go test ./internal/worksection -run LiveSmoke -count=1
 
 Keep live tests read-only.
 
-The live checks — `make live-probe` (`scripts/live-probe.sh`), `make live-output-matrix` (`scripts/live-output-matrix.sh`), and the `LiveSmoke` test
-above — assert **exit codes and envelope/output shapes** against a live account. None of them run in CI (they need a live account, which untrusted
-pull requests cannot use), so they will not catch drift for you. When you change an action contract, parameter validation, an output shape, or
-exit-code behavior, update their expectations in the same change — alongside bumping `ContractVersion` and running `make docs` for the static
-contract and generated docs.
+The following live checks assert **exit codes and envelope/output shapes** against a live account:
+
+- `make live-probe` (`scripts/live-probe.sh`)
+- `make live-output-matrix` (`scripts/live-output-matrix.sh`)
+- the `LiveSmoke` test above
+
+None of them run in CI (they need a live account, which untrusted pull requests cannot use), so they will not catch drift for you. When you change an
+action contract, parameter validation, an output shape, or exit-code behavior, update their expectations in the same change — alongside bumping
+`ContractVersion` and running `make docs` for the static contract and generated docs.
