@@ -72,28 +72,31 @@ changelog:
       - '^style(\([^)]+\))?:'
       - 'typo'
   groups:
-    # Types are anchored at the subject start so a substring (e.g. the "fix" in
-    # "hotfix"/"prefix") cannot misclassify a non-conventional subject.
-    # Breaking changes match first (any conventional type with a "!"), so a
-    # breaking commit surfaces at the top instead of being buried in its type
-    # group. goreleaser assigns each commit to the first matching group.
+    # goreleaser matches group regexps against the SHA-prefixed line
+    # ("<sha>[:] <subject>"), so each regexp skips the SHA with an explicit
+    # delimiter and then anchors the conventional type. Anchoring after the
+    # delimiter (rather than a lazy ".*?") prevents a substring such as the
+    # "fix" in "hotfix"/"prefix" from misclassifying a non-conventional
+    # subject. Breaking changes match first (any type with a "!"), so a
+    # breaking commit surfaces at the top instead of in its type group;
+    # goreleaser assigns each commit to the first matching group.
     - title: '⚠️ Breaking Changes'
-      regexp: '^(feat|fix|perf|refactor|build|chore|ci|docs|test|style|revert)(\([^)]+\))?!:.+$'
+      regexp: '^[0-9a-f]+:?\s+(feat|fix|perf|refactor|build|chore|ci|docs|test|style|revert)(\([^)]+\))?!:.+$'
       order: 0
     - title: Features
-      regexp: '^feat(\([^)]+\))?!?:.+$'
+      regexp: '^[0-9a-f]+:?\s+feat(\([^)]+\))?!?:.+$'
       order: 1
     - title: 'Bug Fixes'
-      regexp: '^fix(\([^)]+\))?!?:.+$'
+      regexp: '^[0-9a-f]+:?\s+fix(\([^)]+\))?!?:.+$'
       order: 2
     - title: Performance
-      regexp: '^perf(\([^)]+\))?!?:.+$'
+      regexp: '^[0-9a-f]+:?\s+perf(\([^)]+\))?!?:.+$'
       order: 3
     - title: Refactoring
-      regexp: '^refactor(\([^)]+\))?!?:.+$'
+      regexp: '^[0-9a-f]+:?\s+refactor(\([^)]+\))?!?:.+$'
       order: 4
     - title: Dependencies
-      regexp: '^build\(deps[^)]*\)!?:.+$'
+      regexp: '^[0-9a-f]+:?\s+build\(deps[^)]*\)!?:.+$'
       order: 5
     - title: Others
       order: 999
