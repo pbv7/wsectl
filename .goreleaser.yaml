@@ -63,27 +63,44 @@ changelog:
   use: github
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
-      - '^ci:'
+      # Match both unscoped (docs:) and scoped (docs(x):) conventional types,
+      # so housekeeping commits stay out of the changelog either way.
+      - '^docs(\([^)]+\))?:'
+      - '^test(\([^)]+\))?:'
+      - '^chore(\([^)]+\))?:'
+      - '^ci(\([^)]+\))?:'
+      - '^style(\([^)]+\))?:'
       - 'typo'
   groups:
-    - title: Features
-      regexp: '^.*?feat(\([^)]+\))??!?:.+$'
+    # goreleaser matches group regexps against the SHA-prefixed line
+    # ("<sha>[:] <subject>"), so each regexp skips the SHA with an explicit
+    # delimiter and then anchors the type right after it — not a lazy ".*?",
+    # which would let a type match as a substring (e.g. the "fix" in "prefix").
+    # The Breaking group matches first, on a fixed list of conventional types
+    # carrying a "!". The closed list is intentional rather than an open \w+
+    # token: it already covers every type this repo uses, and an open token
+    # would reclassify non-standard single-word subjects (e.g. "hotfix!:") as
+    # breaking. If a new type is ever adopted (e.g. "security"), add it here.
+    # goreleaser assigns each commit to the first matching group; the named
+    # groups below stay literal (feat/fix/...).
+    - title: '⚠️ Breaking Changes'
+      regexp: '^[0-9a-f]+:?\s+(feat|fix|perf|refactor|build|chore|ci|docs|test|style|revert)(\([^)]+\))?!:.+$'
       order: 0
-    - title: 'Bug Fixes'
-      regexp: '^.*?fix(\([^)]+\))??!?:.+$'
+    - title: Features
+      regexp: '^[0-9a-f]+:?\s+feat(\([^)]+\))?!?:.+$'
       order: 1
-    - title: Performance
-      regexp: '^.*?perf(\([^)]+\))??!?:.+$'
+    - title: 'Bug Fixes'
+      regexp: '^[0-9a-f]+:?\s+fix(\([^)]+\))?!?:.+$'
       order: 2
-    - title: Refactoring
-      regexp: '^.*?refactor(\([^)]+\))??!?:.+$'
+    - title: Performance
+      regexp: '^[0-9a-f]+:?\s+perf(\([^)]+\))?!?:.+$'
       order: 3
-    - title: Dependencies
-      regexp: '^.*?build\(deps[^)]*\)!?:.+$'
+    - title: Refactoring
+      regexp: '^[0-9a-f]+:?\s+refactor(\([^)]+\))?!?:.+$'
       order: 4
+    - title: Dependencies
+      regexp: '^[0-9a-f]+:?\s+build\(deps[^)]*\)!?:.+$'
+      order: 5
     - title: Others
       order: 999
 
