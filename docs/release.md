@@ -65,9 +65,11 @@ Run locally on a clean working tree:
    `skip_upload: "auto"` means it does **not** push to the Homebrew tap. Inspect the published
    prerelease notes — confirm the grouped sections (⚠️ Breaking Changes, Features, Bug Fixes,
    Performance, Refactoring, Dependencies), housekeeping commits excluded, no missing-or-duplicate
-   entries. Clean up with `gh release delete vX.Y.Z-rc1 --yes`; the `v*` tag ruleset blocks tag
-   deletion for non-admins, so remove the tag with an admin bypass or simply leave the `-rc` tag (it is
-   harmless — not "latest", no tap, no binaries anyone installs by default).
+   entries. Then **clean up before the final tag** — delete both the prerelease release and the rc tag:
+   `gh release delete vX.Y.Z-rc1 --yes && git push origin :refs/tags/vX.Y.Z-rc1` (the `v*` ruleset
+   blocks tag deletion, so this needs an admin bypass). Do **not** leave the rc tag in place: goreleaser
+   would treat it as the previous tag when building the final `vX.Y.Z` release, so the final changelog
+   would include only commits made after the rc and silently drop everything before it.
 6. `WSECTL_HISTORY=0 make live-probe` against your test account: confirm end-to-end binary behavior on real data
 
 Items 5 and 6 are the checks the rest of the pipeline cannot cover: changelog grouping only renders in a
