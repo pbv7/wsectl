@@ -155,14 +155,21 @@ func taskNameFilter(query string) string {
 // filterTopLevelTasks drops subtask rows (those carrying a non-null parent)
 // from a search_tasks array, implementing --top-level-only client-side.
 func filterTopLevelTasks(data json.RawMessage) (json.RawMessage, []string, error) {
-	var rows []map[string]any
+	var rows []json.RawMessage
 	if err := json.Unmarshal(data, &rows); err != nil {
 		return data, []string{"--top-level-only was skipped because the response was not a task array."}, nil
 	}
-	kept := make([]map[string]any, 0, len(rows))
+	// Keep each kept row's original bytes (preserving field order and number
+	// formatting from the server) and only probe the parent field, instead of
+	// round-tripping every row through a map[string]any (which would re-encode
+	// and reorder keys for up to 10000 records).
+	kept := make([]json.RawMessage, 0, len(rows))
 	dropped := 0
 	for _, row := range rows {
-		if p, ok := row["parent"]; ok && p != nil {
+		var probe struct {
+			Parent json.RawMessage `json:"parent"`
+		}
+		if err := json.Unmarshal(row, &probe); err == nil && len(probe.Parent) > 0 && string(probe.Parent) != "null" {
 			dropped++
 			continue
 		}
