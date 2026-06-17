@@ -321,6 +321,11 @@ authoritative for wire behavior and documents known normalizations.
   `date_added`/`date_closed` are also accepted) with operators `has`, `<`, `>`, and `and` — enabling server-side date-range filtering, e.g.
   `--filter "dateadd > '01.06.2026' and dateadd < '12.06.2026'"`. Unsupported fields such as `status`, `tag`, or `priority` make the server reject the
   filter with a misleading `Field is required: filter`.
+- Subtasks: `wsectl tasks list` / `wsectl tasks all` (`get_tasks`/`get_all_tasks`) return **top-level rows only**; `--extra subtasks` attaches a
+  `child` array of **stubs** (`{id, name, page, priority, status}`) to rows that have subtasks. `wsectl tasks search` returns the **flat** set of
+  matching tasks **including subtasks by default** — each subtask is a full first-class task row with its own `status`/assignee/`date_end` and a
+  `parent` object (`extra=subtasks` is a no-op on search). Use `wsectl tasks search --top-level-only` to drop subtasks (client-side; not combinable
+  with `--raw`). For a subtask's full data, read the flat `search` rows or `wsectl tasks get <subtask_id>`.
 - Worksection value shapes to expect: `priority` is a string (e.g. `"5"`); `tags` is a `{id: name}` map and appears only on `tasks get`; an unassigned
   task has `user_to = {"id": "1", "email": "NOONE", "name": "..."}` (sometimes labeled "Anyone") — treat id `1` as unassigned. A task's
   `date_start`/`date_end`/`date_closed` are present only when that date is set.

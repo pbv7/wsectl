@@ -178,6 +178,46 @@ func TestTaskFieldsIncludePageAndDocumentConditionalFields(t *testing.T) {
 	}
 }
 
+func TestSubtaskContract(t *testing.T) {
+	// extra=subtasks exposes "child" stubs (not "subtasks") on get_task/list.
+	for _, action := range []string{"get_task", "get_tasks", "get_all_tasks"} {
+		spec, _ := LookupAction(action)
+		cf := spec.Response.ConditionalFields["extra=subtasks"]
+		names := map[string]bool{}
+		for _, f := range cf {
+			names[f.Name] = true
+		}
+		if !names["child"] {
+			t.Fatalf("%s extra=subtasks should expose 'child', got %#v", action, cf)
+		}
+		if names["subtasks"] {
+			t.Fatalf("%s must not advertise a 'subtasks' field", action)
+		}
+	}
+	// parent is in the shared task item shape, with a description.
+	for _, action := range []string{"search_tasks", "get_task", "get_tasks"} {
+		spec, _ := LookupAction(action)
+		var parent *FieldSpec
+		for i, f := range spec.Response.ItemShape {
+			if f.Name == "parent" {
+				parent = &spec.Response.ItemShape[i]
+			}
+		}
+		if parent == nil {
+			t.Fatalf("%s item_shape missing parent", action)
+		}
+		if parent.Description == "" {
+			t.Fatalf("%s parent must carry a conditional description", action)
+		}
+	}
+	// search_tasks returns subtasks as flat rows, so it must NOT advertise the
+	// child array (extra=subtasks is a no-op there).
+	ss, _ := LookupAction("search_tasks")
+	if _, ok := ss.Response.ConditionalFields["extra=subtasks"]; ok {
+		t.Fatal("search_tasks should not advertise an extra=subtasks child array")
+	}
+}
+
 func TestAdminHashIsStable(t *testing.T) {
 	got := AdminHash("get_tasks", map[string]string{"id_project": "26"}, "7776461cd931e7b1c8e9632ff8e979ce")
 	if got == "" || len(got) != 32 {

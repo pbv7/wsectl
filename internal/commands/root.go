@@ -534,11 +534,16 @@ func worksectionAPIError(action string, resp *worksection.Response) error {
 
 func (s *state) actionOutput(action string, clientInfo clientResult, resp *worksection.Response, transform func(json.RawMessage) (json.RawMessage, []string, error)) (output.Envelope, output.Options, error) {
 	spec, _ := worksection.LookupAction(action)
-	data, extraWarnings, err := transformedActionData(resp.OutputData(action), transform)
+	// Truncation reflects the server response, so derive it from the
+	// untransformed, unlimited payload. A client-side transform (e.g.
+	// --top-level-only) or --limit must not be able to drop the row count below
+	// the cap and report truncated=false on an already-capped response.
+	original := resp.OutputData(action)
+	fullEnv := output.SuccessWithContract(action, clientInfo.profileName, clientInfo.profile.AccountURL, original, spec.Response)
+	data, extraWarnings, err := transformedActionData(original, transform)
 	if err != nil {
 		return output.Envelope{}, output.Options{}, err
 	}
-	fullEnv := output.SuccessWithContract(action, clientInfo.profileName, clientInfo.profile.AccountURL, data, spec.Response)
 	data, limited, err := output.LimitData(data, s.limit, spec.Response)
 	if err != nil {
 		return output.Envelope{}, output.Options{}, err

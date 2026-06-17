@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const ContractVersion = "2026-06-16.2"
+const ContractVersion = "2026-06-17.1"
 
 type ParamType string
 
@@ -129,7 +129,8 @@ var readActions = map[string]Action{
 		responseArray("data", taskFields()), cols("id", "name", "status", "date_end"), commands("wsectl tasks search"),
 		params(param("filter", ParamString, false, nil, "Advanced Worksection task filter"), param("id_project", ParamString, false, nil, "Project ID"), param("id_task", ParamString, false, nil, "Task ID"), param("email_user_to", ParamString, false, nil, "Assignee email"), param("email_user_from", ParamString, false, nil, "Author email"), param("status", ParamString, false, []string{"active", "done", "all"}, "Task status"), param("extra", ParamCSV, false, []string{"text", "files", "comments", "relations", "subtasks", "subscribers"}, "Comma-separated extras")),
 		anyOf("filter", "id_project", "id_task", "email_user_to", "email_user_from"),
-		notes("The CLI translates --query TEXT to filter=name has 'TEXT'. The raw API parameter is filter, not search.",
+		notes("search_tasks returns the flat set of matching tasks in scope, including subtasks by default — a subtask is a full first-class task row with its own status/assignee/date_end and a parent object. Use `tasks search --top-level-only` to drop subtasks. (extra=subtasks has no effect here; the child stub array applies to get_task/get_tasks/get_all_tasks. get_tasks/get_all_tasks return top-level rows only.)",
+			"The CLI translates --query TEXT to filter=name has 'TEXT'. The raw API parameter is filter, not search.",
 			"search_tasks needs at least one of filter, id_project, id_task, email_user_to, email_user_from; status and extra are modifiers, not search criteria.",
 			"The advanced filter grammar supports name and the date fields dateadd, datestart, dateend, dateclose (the underscore response-field forms date_added/date_closed are also accepted) with operators has, <, >, and (e.g. \"dateadd > '01.06.2026' and dateadd < '12.06.2026'\"), enabling server-side date-range filtering. Unsupported fields such as status, tag, or priority make Worksection reject the filter with a misleading \"Field is required: filter\".")),
 
@@ -356,7 +357,7 @@ func taskListAction(name, description, commandPath string, extraParams ...ParamS
 			conditional("extra=files", fields("files:array")),
 			conditional("extra=comments", fields("comments:array")),
 			conditional("extra=relations", fields("relations:array")),
-			conditional("extra=subtasks", fields("subtasks:array")),
+			subtaskChildExtra(),
 			conditional("extra=subscribers", fields("subscribers:array"))),
 		cols("id", "name", "status", "date_end"), commands(commandPath), paramsOpt(params...))
 }
@@ -367,8 +368,17 @@ func taskResponseObject() ResponseContract {
 		conditional("extra=files", fields("files:array")),
 		conditional("extra=comments", fields("comments:array")),
 		conditional("extra=relations", fields("relations:array")),
-		conditional("extra=subtasks", fields("subtasks:array")),
+		subtaskChildExtra(),
 		conditional("extra=subscribers", fields("subscribers:array")))
+}
+
+// subtaskChildExtra is the extra=subtasks contract for get_task/get_tasks/
+// get_all_tasks. The Worksection API attaches subtasks under "child" (not
+// "subtasks"), and only as stubs — full subtask data comes from search_tasks
+// flat rows (each carrying a parent) or a per-subtask get.
+func subtaskChildExtra() conditionalFields {
+	return conditional("extra=subtasks", describe(fields("child:array"),
+		map[string]string{"child": "Subtask stubs ({id, name, page, priority, status}) attached to tasks that have subtasks. Stubs only — for a subtask's assignee/deadline, read search_tasks flat rows or get the subtask by id."}))
 }
 
 func tagAction(name, description, commandPath string) Action {
@@ -456,12 +466,13 @@ func taskFields() []FieldSpec {
 	// Conditional fields carry a schema-visible description so agents inspecting
 	// item_shape know presence varies by task state, rather than treating every
 	// field as guaranteed.
-	return describe(fields("id:string", "name:string", "status:string", "project:object", "user_to:object", "user_from:object", "date_added:string", "date_start:string", "date_end:string", "date_closed:string", "page:string", "priority:string"),
+	return describe(fields("id:string", "name:string", "status:string", "project:object", "user_to:object", "user_from:object", "date_added:string", "date_start:string", "date_end:string", "date_closed:string", "page:string", "priority:string", "parent:object"),
 		map[string]string{
 			"project":     "Omitted when results are already scoped to a project (e.g. tasks list/search by project).",
 			"date_start":  "Present only when the task has a start date set.",
 			"date_end":    "Present only when the task has a deadline set.",
 			"date_closed": "Present only on closed (done) tasks.",
+			"parent":      "Present only when the returned task is a subtask: {id, name, page, status, priority}. search_tasks returns subtasks as flat rows alongside their parents.",
 		})
 }
 

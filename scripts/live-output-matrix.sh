@@ -230,6 +230,10 @@ for fmt in json yaml ndjson table; do
 done
 probe "tasks search --json --fields id,name --limit 5" json 0 tasks search --project "$PROJECT" --json --fields id,name --limit 5
 probe "tasks search --json --jq '.data | length' --limit 5" jq-result 0 tasks search --project "$PROJECT" --json --jq '.data | length' --limit 5
+# --top-level-only filters subtasks (rows with a parent) client-side. The
+# --raw rejection is a client-side preflight (covered by unit tests), not a
+# live-output shape, so it is not probed here.
+probe "tasks search --top-level-only --json" json 0 tasks search --project "$PROJECT" --top-level-only --json --limit 5
 for fmt in json yaml table; do
   probe "tasks get --$fmt" "$fmt" 0 tasks get "$TASK" "--$fmt"
   probe "tasks subtasks --$fmt" "$fmt" 0 tasks subtasks "$TASK" "--$fmt"

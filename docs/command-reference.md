@@ -1625,6 +1625,10 @@ Search tasks by simple query or advanced Worksection filter. Prefer --json for s
 **Worksection actions:** `search_tasks`
 
 - `search_tasks` response shape: `array`; count path: `data`.
+- `search_tasks` compatibility: search_tasks returns the flat set of matching tasks in scope, including subtasks by default — a subtask is a full
+  first-class task row with its own status/assignee/date_end and a parent object. Use `tasks search --top-level-only` to drop subtasks.
+  (extra=subtasks has no effect here; the child stub array applies to get_task/get_tasks/get_all_tasks. get_tasks/get_all_tasks return top-level rows
+  only.)
 - `search_tasks` compatibility: The CLI translates --query TEXT to filter=name has 'TEXT'. The raw API parameter is filter, not search.
 - `search_tasks` compatibility: search_tasks needs at least one of filter, id_project, id_task, email_user_to, email_user_from; status and extra are
   modifiers, not search criteria.
@@ -1645,6 +1649,7 @@ Search tasks by simple query or advanced Worksection filter. Prefer --json for s
 - `--query`
 - `--status`
 - `--task`
+- `--top-level-only`
 
 **Examples:**
 
