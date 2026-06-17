@@ -1264,6 +1264,49 @@ func TestTasksSearchTopLevelOnlyFiltersSubtasks(t *testing.T) {
 	}
 }
 
+func TestTasksSearchTopLevelOnlyPreservesTruncation(t *testing.T) {
+	// A server-capped (10000-row) response with a few subtasks: --top-level-only
+	// drops the subtasks (below 10000), but truncated must stay true since the
+	// server response itself was capped.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","data":[`))
+		for i := range 10000 {
+			if i > 0 {
+				_, _ = w.Write([]byte(","))
+			}
+			if i < 5 {
+				_, _ = fmt.Fprintf(w, `{"id":"%d","name":"sub","parent":{"id":"0"}}`, i)
+			} else {
+				_, _ = fmt.Fprintf(w, `{"id":"%d","name":"top"}`, i)
+			}
+		}
+		_, _ = w.Write([]byte(`]}`))
+	}))
+	defer server.Close()
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_ACCOUNT_URL", server.URL)
+	t.Setenv("WSECTL_ACCESS_TOKEN", "token")
+	out, err := execute("tasks", "search", "--project", "123", "--top-level-only", "--json")
+	if err != nil {
+		t.Fatalf("top-level-only search failed: %v", err)
+	}
+	var env struct {
+		Data []map[string]any `json:"data"`
+		Meta struct {
+			Truncated bool `json:"truncated"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(env.Data) != 9995 {
+		t.Fatalf("expected 9995 top-level rows, got %d", len(env.Data))
+	}
+	if !env.Meta.Truncated {
+		t.Fatal("truncation must be preserved across --top-level-only filtering; got truncated=false")
+	}
+}
+
 func TestTasksSearchTopLevelOnlyRejectsRaw(t *testing.T) {
 	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 	// The preflight rejects before any request; in raw mode the envelope is not
