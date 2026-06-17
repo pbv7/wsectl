@@ -1235,6 +1235,63 @@ func TestProjectsEventsRejectsInvalidPeriodBeforeRequest(t *testing.T) {
 	}
 }
 
+func TestTasksSearchTopLevelOnlyFiltersSubtasks(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","data":[{"id":"1","name":"Top"},{"id":"2","name":"Sub","parent":{"id":"1","name":"Top"}}]}`))
+	}))
+	defer server.Close()
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_ACCOUNT_URL", server.URL)
+	t.Setenv("WSECTL_ACCESS_TOKEN", "token")
+	out, err := execute("tasks", "search", "--project", "123", "--top-level-only", "--json")
+	if err != nil {
+		t.Fatalf("top-level-only search failed: %v\n%s", err, out)
+	}
+	var env struct {
+		Data []map[string]any `json:"data"`
+		Meta struct {
+			Warnings []string `json:"warnings"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, out)
+	}
+	if len(env.Data) != 1 || env.Data[0]["id"] != "1" {
+		t.Fatalf("expected only the top-level task, got %v", env.Data)
+	}
+	if !strings.Contains(strings.Join(env.Meta.Warnings, " "), "top-level-only") {
+		t.Fatalf("expected a client-side filter warning, got %v", env.Meta.Warnings)
+	}
+}
+
+func TestTasksSearchTopLevelOnlyRejectsRaw(t *testing.T) {
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	// The preflight rejects before any request; in raw mode the envelope is not
+	// rendered, but the usage error is returned (and the binary prints it to
+	// stderr). Assert on the returned error.
+	out, err := execute("tasks", "search", "--project", "123", "--top-level-only", "--raw")
+	if err == nil {
+		t.Fatalf("expected usage error for --top-level-only --raw:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "cannot be combined with raw output") {
+		t.Fatalf("unexpected error: %v\nout: %s", err, out)
+	}
+}
+
+func TestTasksSearchTopLevelOnlyRejectsRawFromEnv(t *testing.T) {
+	// Raw selected via WSECTL_OUTPUT (not a CLI flag) must still be rejected —
+	// the preflight resolves the config/env default before checking.
+	t.Setenv("WSECTL_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("WSECTL_OUTPUT", "raw")
+	out, err := execute("tasks", "search", "--project", "123", "--top-level-only")
+	if err == nil {
+		t.Fatalf("expected usage error for --top-level-only with raw output default:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "cannot be combined with raw output") {
+		t.Fatalf("unexpected error: %v\nout: %s", err, out)
+	}
+}
+
 func TestImageFiltering(t *testing.T) {
 	raw, warnings, err := filterImageFiles(json.RawMessage(`[
 		{"id":"1","name":"photo.jpg"},
