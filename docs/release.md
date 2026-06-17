@@ -56,11 +56,23 @@ Run locally on a clean working tree:
    - `checksums.txt`
    - `*.sbom.json` per archive
    - Generated cask at `dist/homebrew/Casks/wsectl.rb`
-5. Inspect generated release notes in the snapshot output: confirm grouped sections
-   (Features, Bug Fixes, Performance, Refactoring, Dependencies, Others), no missing-or-duplicate entries
+5. **Changelog grouping is NOT validated by the snapshot.** `make release-snapshot` skips the
+   changelog, and `use: github` (which matches the `changelog` `groups`/`filters` regexps against the
+   raw commit subject, *not* a SHA-prefixed line like `use: git`) renders differently from any local
+   approximation. So whenever you change `.goreleaser.yaml`'s `changelog` config, validate it against a
+   **real prerelease**: push a `vX.Y.Z-rc1` tag. This is safe by config — `release.prerelease: auto`
+   publishes an `-rc*` tag as a GitHub **prerelease** (never marked "latest"), and the cask's
+   `skip_upload: "auto"` means it does **not** push to the Homebrew tap. Inspect the published
+   prerelease notes — confirm the grouped sections (⚠️ Breaking Changes, Features, Bug Fixes,
+   Performance, Refactoring, Dependencies), housekeeping commits excluded, no missing-or-duplicate
+   entries. Clean up with `gh release delete vX.Y.Z-rc1 --yes`; the `v*` tag ruleset blocks tag
+   deletion for non-admins, so remove the tag with an admin bypass or simply leave the `-rc` tag (it is
+   harmless — not "latest", no tap, no binaries anyone installs by default).
 6. `WSECTL_HISTORY=0 make live-probe` against your test account: confirm end-to-end binary behavior on real data
 
-Item 6 is the only check that exercises a real Worksection account. Skipping it means tagging blind on live behavior.
+Items 5 and 6 are the checks the rest of the pipeline cannot cover: changelog grouping only renders in a
+real `use: github` release, and item 6 is the only check that exercises a real Worksection account.
+Skipping either means tagging blind.
 (`make ci` is fine locally because the developer machine has the toolchain. The release workflow uses dedicated Actions
 for the same steps, since GitHub-hosted runners do not have those binaries preinstalled.)
 

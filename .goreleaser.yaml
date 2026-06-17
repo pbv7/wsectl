@@ -72,34 +72,38 @@ changelog:
       - '^style(\([^)]+\))?:'
       - 'typo'
   groups:
-    # goreleaser matches group regexps against the SHA-prefixed line
-    # ("<sha>[:] <subject>"), so each regexp skips the SHA with an explicit
-    # delimiter and then anchors the type right after it — not a lazy ".*?",
-    # which would let a type match as a substring (e.g. the "fix" in "prefix").
-    # The Breaking group matches first, on a fixed list of conventional types
-    # carrying a "!". The closed list is intentional rather than an open \w+
-    # token: it already covers every type this repo uses, and an open token
-    # would reclassify non-standard single-word subjects (e.g. "hotfix!:") as
-    # breaking. If a new type is ever adopted (e.g. "security"), add it here.
-    # goreleaser assigns each commit to the first matching group; the named
-    # groups below stay literal (feat/fix/...).
+    # With `use: github`, goreleaser matches these regexps against the raw
+    # commit subject (no SHA prefix) — confirmed empirically: v0.2.0 grouped
+    # correctly with the ".*?" forms, and v0.3.0 (briefly using SHA-anchored
+    # forms) collapsed everything into Others because the subject has no SHA to
+    # match. So the lazy ".*?" prefix is required and is the proven form.
+    # The Breaking group matches first on a conventional type carrying a "!", so
+    # a breaking commit surfaces at the top instead of in its type group; the
+    # type list is closed (covers every type this repo uses — add one if a new
+    # type is adopted). The residual cost of ".*?" is that a non-standard
+    # single-word subject like "hotfix!:" can match a type substring; this is
+    # accepted because such subjects do not occur under the repo's conventional
+    # commits. Changelog grouping is NOT exercised by `release-snapshot`
+    # (snapshot skips the changelog) and `use: github` differs from `use: git`,
+    # so the only faithful check is a prerelease tag — validate any change here
+    # against a real prerelease release before tagging a final version.
     - title: '⚠️ Breaking Changes'
-      regexp: '^[0-9a-f]+:?\s+(feat|fix|perf|refactor|build|chore|ci|docs|test|style|revert)(\([^)]+\))?!:.+$'
+      regexp: '^.*?(feat|fix|perf|refactor|build|chore|ci|docs|test|style|revert)(\([^)]+\))?!:.+$'
       order: 0
     - title: Features
-      regexp: '^[0-9a-f]+:?\s+feat(\([^)]+\))?!?:.+$'
+      regexp: '^.*?feat(\([^)]+\))??!?:.+$'
       order: 1
     - title: 'Bug Fixes'
-      regexp: '^[0-9a-f]+:?\s+fix(\([^)]+\))?!?:.+$'
+      regexp: '^.*?fix(\([^)]+\))??!?:.+$'
       order: 2
     - title: Performance
-      regexp: '^[0-9a-f]+:?\s+perf(\([^)]+\))?!?:.+$'
+      regexp: '^.*?perf(\([^)]+\))??!?:.+$'
       order: 3
     - title: Refactoring
-      regexp: '^[0-9a-f]+:?\s+refactor(\([^)]+\))?!?:.+$'
+      regexp: '^.*?refactor(\([^)]+\))??!?:.+$'
       order: 4
     - title: Dependencies
-      regexp: '^[0-9a-f]+:?\s+build\(deps[^)]*\)!?:.+$'
+      regexp: '^.*?build\(deps[^)]*\)!?:.+$'
       order: 5
     - title: Others
       order: 999
@@ -109,6 +113,10 @@ release:
     owner: pbv7
     name: wsectl
   name_template: "{{.ProjectName}} v{{.Version}}"
+  # Tags with a prerelease component (vX.Y.Z-rc1) publish as a GitHub
+  # prerelease, not "latest" — used to validate changelog grouping safely
+  # (see docs/release.md). Final tags (vX.Y.Z) publish as normal releases.
+  prerelease: auto
   footer: |
     ## Installation
 
@@ -135,6 +143,10 @@ release:
 homebrew_casks:
   - name: wsectl
     ids: [wsectl]
+    # Do not push the cask to the tap for prerelease versions (vX.Y.Z-rc1),
+    # so a changelog-validation prerelease never touches Homebrew. Final
+    # releases (non-prerelease versions) still update the tap.
+    skip_upload: "auto"
     repository:
       owner: pbv7
       name: homebrew-tap
