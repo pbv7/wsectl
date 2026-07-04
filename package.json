@@ -2,7 +2,7 @@
   "name": "wsectl",
   "private": true,
   "devDependencies": {
-    "markdownlint-cli2": "0.22.1"
+    "markdownlint-cli2": "0.23.0"
   },
   "scripts": {
     "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\" \"#dist\" \"#coverage\" \"#.cache\" \"#.tmp\""
